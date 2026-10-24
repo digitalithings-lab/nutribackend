@@ -114,13 +114,14 @@ export class AdminController {
     const users = await this.prisma.user.findMany({
       where: term
         ? {
+            role: { in: ["NUTRITIONIST", "ADMIN"] },
             OR: [
               { fullName: { contains: term, mode: "insensitive" } },
               { email: { contains: term, mode: "insensitive" } },
               { clinicName: { contains: term, mode: "insensitive" } },
             ],
           }
-        : undefined,
+        : { role: { in: ["NUTRITIONIST", "ADMIN"] } },
       orderBy: { createdAt: "desc" },
       take: 200,
       include: {
@@ -137,6 +138,7 @@ export class AdminController {
       clinicName: u.clinicName,
       phone: u.phone,
       licenseNumber: u.licenseNumber,
+      linkCode: u.linkCode,
       createdAt: u.createdAt,
       lastLoginAt: u.lastLoginAt,
       patients: u._count.patients,

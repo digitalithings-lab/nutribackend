@@ -362,7 +362,23 @@ async function seedFoods(prefix: string, source: FoodSource, foods: Record<strin
   return created;
 }
 
+// Las nutricionistas registradas antes del código de vinculación reciben uno.
+async function fillLinkCodes() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const missing = await prisma.user.findMany({ where: { role: "NUTRITIONIST", linkCode: null }, select: { id: true } });
+  for (const user of missing) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+      const taken = await prisma.user.findUnique({ where: { linkCode: code }, select: { id: true } });
+      if (taken) continue;
+      await prisma.user.update({ where: { id: user.id }, data: { linkCode: code } });
+      break;
+    }
+  }
+}
+
 async function main() {
+  await fillLinkCodes();
   for (const plan of PLANS) {
     await prisma.subscriptionPlan.upsert({ where: { code: plan.code }, create: plan, update: {} });
   }
