@@ -22,9 +22,11 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_MESSAGE = "La fecha debe tener formato YYYY-MM-DD";
 
 export class RegisterPatientDto {
-  @Transform(({ value }) => (typeof value === "string" ? value.trim().toUpperCase().replace(/[\s-]/g, "") : value))
-  @Length(6, 12, { message: "El código de invitación no es válido" })
-  code: string;
+  // Opcional: sin código la cuenta se crea sin nutricionista y se vincula después.
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === "string" ? value.trim().toUpperCase().replace(/[\s-]/g, "") || undefined : value))
+  @Length(6, 12, { message: "El código no es válido" })
+  code?: string;
 
   @Transform(lowercaseTrim)
   @IsEmail({}, { message: "El correo no es válido" })
@@ -35,12 +37,16 @@ export class RegisterPatientDto {
   @MaxLength(128)
   password: string;
 
-  // Obligatorios cuando el código es el de la nutricionista (se crea un expediente nuevo).
+  // Obligatorios salvo con una invitación (en ese caso el expediente ya existe).
   @IsOptional() @IsString() @Length(1, 60) firstName?: string;
   @IsOptional() @IsString() @Length(1, 60) lastName?: string;
   @IsOptional() @IsIn(["FEMALE", "MALE"]) sex?: "FEMALE" | "MALE";
   @IsOptional() @Matches(DATE, { message: DATE_MESSAGE }) birthDate?: string;
   @IsOptional() @IsString() @MaxLength(30) phone?: string;
+}
+
+export class LinkDto {
+  @IsString() @Length(6, 20, { message: "El código no es válido" }) code: string;
 }
 
 export class AppointmentRequestDto {

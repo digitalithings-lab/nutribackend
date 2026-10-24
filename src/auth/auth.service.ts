@@ -76,14 +76,15 @@ export class AuthService {
   // Activación de la app de un paciente. Con el código de invitación se vincula a su expediente;
   // con el código de la nutricionista se crea un expediente nuevo con sus datos.
   async registerPatient(dto: RegisterPatientDto, deviceName?: string) {
-    const lookup = await this.lookupCode(dto.code);
-    const code = normalizeCode(dto.code);
+    // Sin código la cuenta queda sin nutricionista; se vincula después desde la app.
+    const lookup = dto.code ? await this.lookupCode(dto.code) : null;
+    const code = dto.code ? normalizeCode(dto.code) : null;
     const passwordHash = await hashPassword(dto.password);
 
     try {
       const user = await this.prisma.$transaction(async (tx) => {
-        if (lookup.type === "INVITE") {
-          const patient = await tx.patient.findUniqueOrThrow({ where: { inviteCode: code } });
+        if (lookup?.type === "INVITE") {
+          const patient = await tx.patient.findUniqueOrThrow({ where: { inviteCode: code! } });
           const created = await tx.user.create({
             data: { email: dto.email, passwordHash, role: UserRole.PATIENT, fullName: `${patient.firstName} ${patient.lastName}` },
           });
@@ -103,8 +104,8 @@ export class AuthService {
         if (Number.isNaN(birthDate.getTime()) || birthDate > new Date()) {
           throw new BadRequestException("La fecha de nacimiento no es válida");
         }
-        const nutritionist = await tx.user.findUniqueOrThrow({ where: { linkCode: code } });
-        await assertCanAddPatient(this.prisma, nutritionist.id);
+        const nutritionist = code ? await tx.user.findUniqueOrThrow({ where: { linkCode: code } }) : null;
+        if (nutritionist) await assertCanAddPatient(this.prisma, nutritionist.id);
         const created = await tx.user.create({
           data: {
             email: dto.email,
@@ -115,7 +116,7 @@ export class AuthService {
         });
         await tx.patient.create({
           data: {
-            nutritionistId: nutritionist.id,
+            nutritionistId: nutritionist?.id ?? null,
             userId: created.id,
             firstName: dto.firstName.trim(),
             lastName: dto.lastName.trim(),
@@ -123,7 +124,7 @@ export class AuthService {
             birthDate,
             email: dto.email,
             phone: dto.phone?.trim() || null,
-            createdFromApp: true,
+            createdFromApp: !!nutritionist,
           },
         });
         return created;

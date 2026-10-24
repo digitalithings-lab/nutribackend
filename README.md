@@ -88,7 +88,8 @@ Todas exigen `Authorization: Bearer <accessToken>`, salvo las marcadas como púb
 | POST / DELETE | `/patients/:id/app-invite` · `/patients/:id/app-access` | Código para activar la app · quitar acceso |
 | GET | `/patients/:id/app-activity` | Comidas y pesos registrados por el paciente |
 | GET | `/auth/link-code/:code` | Qué es un código: invitación a un expediente o código de una nutricionista (pública) |
-| POST | `/auth/register-patient` | Activación de la app con cualquiera de los dos códigos (pública) |
+| POST | `/auth/register-patient` | Crear cuenta de paciente: sin código, con el código de la nutricionista o con una invitación (pública) |
+| POST | `/me/link` | Vincular con una nutricionista una cuenta creada sin código |
 | POST | `/account/link-code` | Generar un código de vinculación nuevo para la nutricionista |
 | GET / POST | `/me/appointments` | Citas del paciente / solicitar una (queda `REQUESTED` hasta que la nutricionista la acepte) |
 | GET | `/me/appointments/busy?date=` | Horarios ocupados de la nutricionista ese día |

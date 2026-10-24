@@ -228,7 +228,8 @@ model SupportTicket {
 
 model Patient {
   id             String    @id @default(uuid()) @db.Uuid
-  nutritionistId String    @map("nutritionist_id") @db.Uuid
+  // null = paciente que se registró solo en la app y aún no se vincula con una nutricionista.
+  nutritionistId String?   @map("nutritionist_id") @db.Uuid
   firstName      String    @map("first_name")
   lastName       String    @map("last_name")
   sex            Sex
@@ -252,7 +253,7 @@ model Patient {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  nutritionist  User              @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
+  nutritionist  User?             @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
   user          User?             @relation("PatientAccount", fields: [userId], references: [id], onDelete: SetNull)
   foodLogs      FoodLog[]
   foodScans     FoodScan[]

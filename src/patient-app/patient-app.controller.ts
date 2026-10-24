@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Pa
 import { Throttle } from "@nestjs/throttler";
 import { AuthUser, CurrentUser } from "../common/auth.decorators";
 import { Roles } from "../common/roles";
-import { AppointmentRequestDto, FoodLogDto, FoodScanDto, WeightDto } from "./patient-app.dto";
+import { AppointmentRequestDto, FoodLogDto, FoodScanDto, LinkDto, WeightDto } from "./patient-app.dto";
 import { PatientAppService } from "./patient-app.service";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -40,6 +40,14 @@ export class PatientAppController {
   @Get()
   me(@CurrentUser() user: AuthUser) {
     return this.app.me(user.id);
+  }
+
+  // Vincula una cuenta creada sin código con su nutricionista.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post("link")
+  @HttpCode(200)
+  link(@CurrentUser() user: AuthUser, @Body() dto: LinkDto) {
+    return this.app.link(user.id, dto.code);
   }
 
   @Get("plan")

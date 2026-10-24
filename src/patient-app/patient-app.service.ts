@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { FoodLogSource, Prisma } from "@prisma/client";
 import { assertNoOverlap } from "../appointments/appointments.controller";
-import { ownedPatient } from "../common/access";
-import { randomCode } from "../common/codes";
+import { assertCanAddPatient, ownedPatient } from "../common/access";
+import { normalizeCode, randomCode } from "../common/codes";
 import { dateFromString, num } from "../common/dates";
 import { config } from "../config";
 import { MealPlansService } from "../meal-plans/meal-plans.service";
@@ -120,10 +120,51 @@ export class PatientAppService {
       include: { nutritionist: { select: { fullName: true, clinicName: true, phone: true, email: true, status: true } } },
     });
     if (!patient) throw new NotFoundException("Tu cuenta no está vinculada a un expediente");
-    if (patient.archivedAt || patient.nutritionist.status !== "ACTIVE") {
+    if (patient.archivedAt || (patient.nutritionist && patient.nutritionist.status !== "ACTIVE")) {
       throw new ForbiddenException("Tu acceso está en pausa. Consulta con tu nutricionista.");
     }
     return patient;
+  }
+
+  // Para lo que requiere nutricionista (citas): avisa si el paciente aún no se vinculó.
+  private requireNutritionist(patient: { nutritionistId: string | null }): string {
+    if (!patient.nutritionistId) {
+      throw new BadRequestException("Primero vincúlate con tu nutricionista usando su código.");
+    }
+    return patient.nutritionistId;
+  }
+
+  // Vincula una cuenta creada sin código. Con el código de la nutricionista se le asigna el
+  // expediente actual; con una invitación se une al expediente que ya existía y se le pasan sus registros.
+  async link(userId: string, rawCode: string) {
+    const patient = await this.current(userId);
+    if (patient.nutritionistId) throw new ConflictException("Ya estás vinculada(o) con una nutricionista.");
+    const code = normalizeCode(rawCode);
+
+    const invited = await this.prisma.patient.findUnique({ where: { inviteCode: code } });
+    if (invited && !invited.userId && !invited.archivedAt && invited.inviteExpiresAt && invited.inviteExpiresAt > new Date()) {
+      await this.prisma.$transaction([
+        this.prisma.foodLog.updateMany({ where: { patientId: patient.id }, data: { patientId: invited.id } }),
+        this.prisma.foodScan.updateMany({ where: { patientId: patient.id }, data: { patientId: invited.id } }),
+        // Si ambos expedientes tienen peso el mismo día se conserva el de la consulta existente.
+        this.prisma.weightLog.deleteMany({
+          where: { patientId: patient.id, date: { in: (await this.prisma.weightLog.findMany({ where: { patientId: invited.id }, select: { date: true } })).map((w) => w.date) } },
+        }),
+        this.prisma.weightLog.updateMany({ where: { patientId: patient.id }, data: { patientId: invited.id } }),
+        this.prisma.patient.update({ where: { id: patient.id }, data: { userId: null } }),
+        this.prisma.patient.update({ where: { id: invited.id }, data: { userId, inviteCode: null, inviteExpiresAt: null } }),
+        this.prisma.patient.delete({ where: { id: patient.id } }),
+      ]);
+      return this.me(userId);
+    }
+
+    const nutritionist = await this.prisma.user.findUnique({ where: { linkCode: code } });
+    if (!nutritionist || nutritionist.role !== "NUTRITIONIST" || nutritionist.status !== "ACTIVE") {
+      throw new NotFoundException("El código no es válido o ya venció. Pídele uno a tu nutricionista.");
+    }
+    await assertCanAddPatient(this.prisma, nutritionist.id);
+    await this.prisma.patient.update({ where: { id: patient.id }, data: { nutritionistId: nutritionist.id, createdFromApp: true } });
+    return this.me(userId);
   }
 
   async me(userId: string) {
@@ -135,7 +176,13 @@ export class PatientAppService {
       sex: p.sex,
       birthDate: p.birthDate,
       goal: p.goal,
-      nutritionist: { fullName: p.nutritionist.fullName, clinicName: p.nutritionist.clinicName, phone: p.nutritionist.phone, email: p.nutritionist.email },
+      linked: !!p.nutritionist,
+      nutritionist: p.nutritionist && {
+        fullName: p.nutritionist.fullName,
+        clinicName: p.nutritionist.clinicName,
+        phone: p.nutritionist.phone,
+        email: p.nutritionist.email,
+      },
     };
   }
 
@@ -149,8 +196,8 @@ export class PatientAppService {
   // Plan aprobado vigente, sin las notas internas de la nutricionista.
   async plan(userId: string) {
     const patient = await this.current(userId);
-    const plan = await this.approvedPlan(patient.id);
-    if (!plan) return null;
+    const plan = patient.nutritionistId ? await this.approvedPlan(patient.id) : null;
+    if (!plan || !patient.nutritionistId) return null;
     const detail = await this.plans.detail(patient.nutritionistId, plan.id);
     const { notes: _notes, ...visible } = detail;
     return visible;
@@ -159,8 +206,8 @@ export class PatientAppService {
   // Lista de intercambios: alimentos de cada grupo del plan con su porción equivalente.
   async exchangeList(userId: string) {
     const patient = await this.current(userId);
-    const plan = await this.approvedPlan(patient.id);
-    if (!plan) return [];
+    const plan = patient.nutritionistId ? await this.approvedPlan(patient.id) : null;
+    if (!plan || !patient.nutritionistId) return [];
     const detail = await this.plans.detail(patient.nutritionistId, plan.id);
     const keys = Object.keys(detail.daily);
     const foods = await this.prisma.food.findMany({
@@ -193,9 +240,9 @@ export class PatientAppService {
     return this.daySummary(patient.id, patient.nutritionistId, date);
   }
 
-  private async daySummary(patientId: string, nutritionistId: string, date: string) {
-    const plan = await this.approvedPlan(patientId);
-    const detail = plan ? await this.plans.detail(nutritionistId, plan.id) : null;
+  private async daySummary(patientId: string, nutritionistId: string | null, date: string) {
+    const plan = nutritionistId ? await this.approvedPlan(patientId) : null;
+    const detail = plan && nutritionistId ? await this.plans.detail(nutritionistId, plan.id) : null;
     const logs = await this.prisma.foodLog.findMany({
       where: { patientId, date: dateFromString(date) },
       orderBy: { createdAt: "asc" },
@@ -320,7 +367,9 @@ export class PatientAppService {
   async progress(userId: string) {
     const patient = await this.current(userId);
     const [evolution, weights] = await Promise.all([
-      this.patients.evolution(patient.nutritionistId, patient.id),
+      patient.nutritionistId
+        ? this.patients.evolution(patient.nutritionistId, patient.id)
+        : { points: [], summary: { consultations: 0, initialWeightKg: null, currentWeightKg: null, weightChangeKg: null, initialBmi: null, currentBmi: null } },
       this.prisma.weightLog.findMany({ where: { patientId: patient.id }, orderBy: { date: "asc" } }),
     ]);
     return {
@@ -388,7 +437,7 @@ export class PatientAppService {
     const from = new Date(day.getTime() - 24 * 60 * 60 * 1000);
     const to = new Date(day.getTime() + 48 * 60 * 60 * 1000);
     const appointments = await this.prisma.appointment.findMany({
-      where: { nutritionistId: patient.nutritionistId, status: { in: ["SCHEDULED", "REQUESTED"] }, startsAt: { gte: from, lt: to } },
+      where: { nutritionistId: this.requireNutritionist(patient), status: { in: ["SCHEDULED", "REQUESTED"] }, startsAt: { gte: from, lt: to } },
       select: { startsAt: true, durationMinutes: true, status: true, patientId: true },
     });
     return appointments.map((a) => ({
@@ -401,17 +450,18 @@ export class PatientAppService {
 
   async requestAppointment(userId: string, dto: AppointmentRequestDto) {
     const patient = await this.current(userId);
+    const nutritionistId = this.requireNutritionist(patient);
     const startsAt = new Date(dto.startsAt);
     if (startsAt.getTime() < Date.now() + 60 * 60 * 1000) {
       throw new BadRequestException("Elige una hora con al menos una hora de anticipación");
     }
     const pending = await this.prisma.appointment.count({ where: { patientId: patient.id, status: "REQUESTED" } });
     if (pending >= 3) throw new BadRequestException("Ya tienes solicitudes pendientes. Espera la respuesta de tu nutricionista.");
-    await assertNoOverlap(this.prisma, patient.nutritionistId, startsAt, 45, undefined, () => "Ese horario ya está ocupado. Elige otro.");
+    await assertNoOverlap(this.prisma, nutritionistId, startsAt, 45, undefined, () => "Ese horario ya está ocupado. Elige otro.");
     const hasConsultations = await this.prisma.consultation.count({ where: { patientId: patient.id } });
     return this.prisma.appointment.create({
       data: {
-        nutritionistId: patient.nutritionistId,
+        nutritionistId,
         patientId: patient.id,
         startsAt,
         durationMinutes: 45,
