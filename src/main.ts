@@ -1,21 +1,11 @@
-import "reflect-metadata";
-import { Logger, ValidationPipe } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
-import { NestExpressApplication } from "@nestjs/platform-express";
-import { AppModule } from "./app.module";
-import { DecimalInterceptor } from "./common/decimal.interceptor";
+import { Logger } from "@nestjs/common";
+import { createApp } from "./app.factory";
 import { config } from "./config";
 
+// Servidor normal (desarrollo local o plataformas con procesos permanentes).
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
-
-  // Railway pone un proxy delante; sin esto el límite de peticiones vería a todos con la misma IP.
-  app.set("trust proxy", 1);
-  app.enableCors({ exposedHeaders: ["Content-Disposition"] });
+  const app = await createApp();
   app.enableShutdownHooks();
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
-  app.useGlobalInterceptors(new DecimalInterceptor());
-
   await app.listen(config.port, "0.0.0.0");
   Logger.log(`NutriPro backend escuchando en el puerto ${config.port}`, "Bootstrap");
 }
