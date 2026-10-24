@@ -4,6 +4,7 @@ import { Prisma, SubscriptionStatus, User, UserRole, UserStatus } from "@prisma/
 import { hashPassword, randomToken, sha256, verifyPassword } from "../common/crypto";
 import { config } from "../config";
 import { PrismaService } from "../prisma/prisma.service";
+import { RegisterPatientDto } from "../patient-app/patient-app.dto";
 import { ChangePasswordDto, LoginDto, RegisterDto } from "./dto/auth.dto";
 
 // Hash de una contraseña que nunca coincide; se usa para que un correo inexistente
@@ -41,6 +42,35 @@ export class AuthService {
               }
             : undefined,
         },
+      });
+      return this.issueTokens(user, deviceName);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new ConflictException("Ya existe una cuenta con ese correo");
+      }
+      throw err;
+    }
+  }
+
+  // Activación de la app por un paciente con el código que le dio su nutricionista.
+  async registerPatient(dto: RegisterPatientDto, deviceName?: string) {
+    const patient = await this.prisma.patient.findUnique({ where: { inviteCode: dto.code } });
+    if (!patient || patient.userId || patient.archivedAt || !patient.inviteExpiresAt || patient.inviteExpiresAt < new Date()) {
+      throw new BadRequestException("El código no es válido o ya venció. Pide uno nuevo a tu nutricionista.");
+    }
+    const passwordHash = await hashPassword(dto.password);
+    try {
+      const user = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+          data: { email: dto.email, passwordHash, role: UserRole.PATIENT, fullName: `${patient.firstName} ${patient.lastName}` },
+        });
+        // El updateMany con userId null evita que dos registros usen el mismo código a la vez.
+        const linked = await tx.patient.updateMany({
+          where: { id: patient.id, userId: null },
+          data: { userId: created.id, inviteCode: null, inviteExpiresAt: null },
+        });
+        if (linked.count === 0) throw new ConflictException("Este código ya se usó");
+        return created;
       });
       return this.issueTokens(user, deviceName);
     } catch (err) {

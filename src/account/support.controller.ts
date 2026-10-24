@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post } from "@nestjs/common";
 import { IsString, Length } from "class-validator";
 import { AuthUser, CurrentUser } from "../common/auth.decorators";
 import { Trim } from "../common/dto";
+import { Roles } from "../common/roles";
 import { PrismaService } from "../prisma/prisma.service";
 
 export class CreateTicketDto {
@@ -11,6 +12,7 @@ export class CreateTicketDto {
 
 // Solicitudes de soporte de la nutricionista al equipo de administración.
 @Controller("support")
+@Roles("NUTRITIONIST")
 export class SupportController {
   constructor(private readonly prisma: PrismaService) {}
 

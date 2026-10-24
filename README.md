@@ -26,6 +26,7 @@ Variables del servicio del backend:
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
 | `JWT_SECRET` | `openssl rand -base64 32` |
 | `ADMIN_EMAILS` | correos con acceso de administración, separados por comas |
+| `GROQ_API_KEY` | clave de Groq para analizar fotos de comida (app del paciente) |
 
 Al arrancar, `npm start` aplica las migraciones pendientes (crea las tablas), carga los catálogos
 (planes, sistemas de intercambio y alimentos) y levanta la API.
@@ -84,5 +85,12 @@ Todas exigen `Authorization: Bearer <accessToken>`, salvo las marcadas como púb
 | GET | `/reports/meal-plans/:id/plan.pdf` · `/calculations.pdf` | Plan para el paciente · cálculos |
 | GET | `/reports/consultations/:id/evaluation.pdf` | Evaluación nutricional |
 | GET | `/reports/patients/:id/progress.pdf` | Informe de progreso |
+| POST / DELETE | `/patients/:id/app-invite` · `/patients/:id/app-access` | Código para activar la app · quitar acceso |
+| GET | `/patients/:id/app-activity` | Comidas y pesos registrados por el paciente |
+| POST | `/auth/register-patient` | Activación de la app con el código (pública) |
+| GET | `/me` · `/me/plan` · `/me/exchange-list` · `/me/day?date=` | App del paciente: perfil, plan aprobado, intercambios, resumen del día |
+| POST | `/me/food-scans` | Foto (base64) → estimación de calorías con Groq y comparación con el plan |
+| GET / POST / DELETE | `/me/food-logs` · `/me/weights` | Comidas y pesos del paciente |
+| GET | `/me/progress` · `/me/appointments` | Evolución y próximas citas |
 | GET | `/admin/overview` · `/admin/users` · `/admin/plans` · `/admin/tickets` | Administración |
 | PATCH / PUT | `/admin/users/:id/status` · `/admin/users/:id/subscription` | Suspender · cambiar plan |

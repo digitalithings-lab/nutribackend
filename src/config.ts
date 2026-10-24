@@ -33,4 +33,15 @@ export const config = {
   trialDays: int("TRIAL_DAYS", 14),
   // Plan asignado a las cuentas nuevas.
   defaultPlanCode: process.env.DEFAULT_PLAN_CODE ?? "BASICO",
+  // Días de vigencia del código para que un paciente active la app.
+  inviteDays: int("PATIENT_INVITE_DAYS", 14),
+  groq: {
+    apiKey: process.env.GROQ_API_KEY ?? "",
+    baseUrl: process.env.GROQ_BASE_URL ?? "https://api.groq.com/openai/v1",
+    // Modelo con visión para analizar fotos de comida.
+    visionModel: process.env.GROQ_VISION_MODEL ?? "qwen/qwen3.8-27b",
+    timeoutMs: int("GROQ_TIMEOUT_MS", 30_000),
+  },
+  // Fotos analizadas por paciente al día.
+  foodScanDailyLimit: int("FOOD_SCAN_DAILY_LIMIT", 25),
 };

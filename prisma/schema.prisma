@@ -23,6 +23,7 @@ datasource db {
 enum UserRole {
   NUTRITIONIST
   ADMIN
+  PATIENT
 }
 
 enum UserStatus {
@@ -94,6 +95,11 @@ enum MealPlanStatus {
   ARCHIVED
 }
 
+enum FoodLogSource {
+  PHOTO
+  MANUAL
+}
+
 enum TicketStatus {
   OPEN
   ANSWERED
@@ -136,6 +142,8 @@ model User {
   foods         Food[]
   recipes       Recipe[]
   tickets       SupportTicket[]
+  // Cuenta de la app móvil cuando el usuario es un paciente.
+  patientAccount Patient? @relation("PatientAccount")
 
   @@map("users")
 }
@@ -230,10 +238,18 @@ model Patient {
   goal           String?
   notes          String?
   archivedAt     DateTime? @map("archived_at")
+  // Acceso a la app móvil: cuenta vinculada y código de invitación vigente.
+  userId          String?   @unique @map("user_id") @db.Uuid
+  inviteCode      String?   @unique @map("invite_code")
+  inviteExpiresAt DateTime? @map("invite_expires_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   nutritionist  User              @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
+  user          User?             @relation("PatientAccount", fields: [userId], references: [id], onDelete: SetNull)
+  foodLogs      FoodLog[]
+  foodScans     FoodScan[]
+  weightLogs    WeightLog[]
   background    PatientBackground?
   dietHistory   DietHistory?
   labResults    LabResult[]
@@ -626,4 +642,61 @@ model MealPlanItem {
 
   @@index([mealId])
   @@map("meal_plan_items")
+}
+
+// ─────────────────────────────────────────────
+// App del paciente
+// ─────────────────────────────────────────────
+
+// Comida registrada por el paciente (desde una foto analizada o a mano).
+model FoodLog {
+  id          String        @id @default(uuid()) @db.Uuid
+  patientId   String        @map("patient_id") @db.Uuid
+  // Día local del paciente (YYYY-MM-DD guardado a mediodía UTC).
+  date        DateTime      @db.Date
+  mealName    String?       @map("meal_name")
+  description String
+  // [{ name, portion, kcal, choG, proG, fatG }]
+  items       Json          @default("[]")
+  kcal        Int
+  choG        Decimal       @map("cho_g") @db.Decimal(6, 1)
+  proG        Decimal       @map("pro_g") @db.Decimal(6, 1)
+  fatG        Decimal       @map("fat_g") @db.Decimal(6, 1)
+  source      FoodLogSource @default(MANUAL)
+  confidence  String?
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, date])
+  @@map("food_logs")
+}
+
+// Cada análisis de foto con IA (sin la imagen): sirve para el límite diario y auditoría.
+model FoodScan {
+  id        String   @id @default(uuid()) @db.Uuid
+  patientId String   @map("patient_id") @db.Uuid
+  model     String
+  isFood    Boolean  @map("is_food")
+  kcal      Int?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, createdAt])
+  @@map("food_scans")
+}
+
+model WeightLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  patientId String   @map("patient_id") @db.Uuid
+  date      DateTime @db.Date
+  weightKg  Decimal  @map("weight_kg") @db.Decimal(5, 2)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId, date])
+  @@map("weight_logs")
 }

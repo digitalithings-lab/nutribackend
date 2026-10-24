@@ -4,6 +4,7 @@ import { IsEnum, IsInt, IsOptional, IsString, Length, Max, MaxLength, Min } from
 import { publicUser } from "../auth/auth.service";
 import { AuthUser, CurrentUser, Public } from "../common/auth.decorators";
 import { EmptyToUndefined } from "../common/dto";
+import { Roles } from "../common/roles";
 import { PrismaService } from "../prisma/prisma.service";
 
 export class UpdateAccountDto {
@@ -32,6 +33,7 @@ export class AccountController {
   }
 
   @Get("account")
+  @Roles("NUTRITIONIST", "ADMIN")
   async get(@CurrentUser() user: AuthUser) {
     const [account, patients] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: user.id }, include: { subscription: { include: { plan: true } } } }),
@@ -41,6 +43,7 @@ export class AccountController {
   }
 
   @Patch("account")
+  @Roles("NUTRITIONIST", "ADMIN")
   async update(@CurrentUser() user: AuthUser, @Body() dto: UpdateAccountDto) {
     const current = await this.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     const cho = dto.defaultChoPct ?? current.defaultChoPct;

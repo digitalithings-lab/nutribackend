@@ -250,6 +250,7 @@ export class CatalogController {
   constructor(private readonly catalog: CatalogService) {}
 
   @Get("exchange-systems")
+  @Roles("NUTRITIONIST", "ADMIN")
   systems() {
     return this.catalog.systems();
   }
@@ -268,6 +269,7 @@ export class CatalogController {
   }
 
   @Get("foods/:id/equivalents")
+  @Roles("NUTRITIONIST", "ADMIN")
   equivalents(@CurrentUser() user: AuthUser, @Param("id", ParseUUIDPipe) id: string) {
     return this.catalog.equivalents(user.id, id);
   }

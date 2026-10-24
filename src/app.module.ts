@@ -14,6 +14,7 @@ import { ConsultationsModule } from "./consultations/consultations.module";
 import { HealthController } from "./health/health.controller";
 import { HomeModule } from "./home/home.controller";
 import { MealPlansModule } from "./meal-plans/meal-plans.module";
+import { PatientAppModule } from "./patient-app/patient-app.module";
 import { PatientsModule } from "./patients/patients.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { ReportsModule } from "./reports/reports.module";
@@ -37,6 +38,7 @@ import { ReportsModule } from "./reports/reports.module";
     ReportsModule,
     HomeModule,
     AdminModule,
+    PatientAppModule,
   ],
   controllers: [HealthController],
   providers: [

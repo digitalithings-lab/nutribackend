@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, HttpCode, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { AuthUser, CurrentUser, Public } from "../common/auth.decorators";
+import { RegisterPatientDto } from "../patient-app/patient-app.dto";
 import { AuthService } from "./auth.service";
 import { ChangePasswordDto, LoginDto, RefreshDto, RegisterDto } from "./dto/auth.dto";
 
@@ -16,6 +17,13 @@ export class AuthController {
   @Post("register")
   register(@Body() dto: RegisterDto, @Headers("x-device-name") deviceName?: string) {
     return this.auth.register(dto, deviceName);
+  }
+
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Post("register-patient")
+  registerPatient(@Body() dto: RegisterPatientDto, @Headers("x-device-name") deviceName?: string) {
+    return this.auth.registerPatient(dto, deviceName);
   }
 
   @Public()
