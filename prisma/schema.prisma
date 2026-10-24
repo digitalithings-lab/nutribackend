@@ -1,0 +1,627 @@
+// Esquema de base de datos de NutriPro.
+// Las tablas y columnas se guardan en snake_case (@@map / @map).
+//
+// Cada nutricionista tiene su espacio privado: todo lo clínico (pacientes, consultas,
+// planes, recetas y alimentos propios) cuelga de nutritionist_id y el backend
+// filtra siempre por ese campo.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum UserRole {
+  NUTRITIONIST
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum Sex {
+  FEMALE
+  MALE
+}
+
+enum AppointmentType {
+  FIRST_VISIT
+  CONTROL
+  FOLLOW_UP
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ConsultationType {
+  INITIAL
+  FOLLOW_UP
+}
+
+enum CalorieMethod {
+  AUTOMATIC
+  MANUAL
+}
+
+// Ecuaciones de gasto energético en reposo.
+enum EnergyEquation {
+  MIFFLIN_ST_JEOR
+  HARRIS_BENEDICT
+  FAO_WHO
+  OWEN
+  KATCH_MCARDLE
+  KCAL_PER_KG
+}
+
+// Listas tradicionales, base de alimentos de Panamá o ambas.
+enum ExchangeMode {
+  TRADITIONAL
+  PANAMA
+  COMBINED
+}
+
+enum FoodSource {
+  TRADITIONAL
+  PANAMA
+  CUSTOM
+}
+
+enum MealPlanStatus {
+  DRAFT
+  APPROVED
+  ARCHIVED
+}
+
+enum TicketStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+}
+
+// ─────────────────────────────────────────────
+// Cuentas, planes y soporte
+// ─────────────────────────────────────────────
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  email         String     @unique
+  passwordHash  String     @map("password_hash")
+  role          UserRole   @default(NUTRITIONIST)
+  status        UserStatus @default(ACTIVE)
+  fullName      String     @map("full_name")
+  licenseNumber String?    @map("license_number")
+  phone         String?
+  clinicName    String?    @map("clinic_name")
+  clinicAddress String?    @map("clinic_address")
+  country       String     @default("PA")
+  timezone      String     @default("America/Panama")
+  // Configuración de trabajo: ecuación, distribución de macros y tiempos de comida por defecto.
+  defaultEquation     EnergyEquation @default(MIFFLIN_ST_JEOR) @map("default_equation")
+  defaultExchangeMode ExchangeMode   @default(PANAMA) @map("default_exchange_mode")
+  defaultChoPct       Int            @default(50) @map("default_cho_pct")
+  defaultProPct       Int            @default(20) @map("default_pro_pct")
+  defaultFatPct       Int            @default(30) @map("default_fat_pct")
+  lastLoginAt   DateTime?  @map("last_login_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  sessions      Session[]
+  subscription  Subscription?
+  patients      Patient[]
+  appointments  Appointment[]
+  consultations Consultation[]
+  mealPlans     MealPlan[]
+  foods         Food[]
+  recipes       Recipe[]
+  tickets       SupportTicket[]
+
+  @@map("users")
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  refreshTokenHash String    @unique @map("refresh_token_hash")
+  deviceName       String?   @map("device_name")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// Planes comerciales que el administrador ofrece a las nutricionistas.
+model SubscriptionPlan {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  priceCents  Int      @map("price_cents")
+  currency    String   @default("USD")
+  // null = pacientes ilimitados.
+  maxPatients Int?     @map("max_patients")
+  features    String[] @default([])
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id               String             @id @default(uuid()) @db.Uuid
+  userId           String             @unique @map("user_id") @db.Uuid
+  planId           String             @map("plan_id") @db.Uuid
+  status           SubscriptionStatus @default(TRIAL)
+  currentPeriodEnd DateTime?          @map("current_period_end")
+  notes            String?
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@map("subscriptions")
+}
+
+model SupportTicket {
+  id         String       @id @default(uuid()) @db.Uuid
+  userId     String       @map("user_id") @db.Uuid
+  subject    String
+  message    String
+  status     TicketStatus @default(OPEN)
+  reply      String?
+  repliedAt  DateTime?    @map("replied_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("support_tickets")
+}
+
+// ─────────────────────────────────────────────
+// Pacientes y expediente
+// ─────────────────────────────────────────────
+
+model Patient {
+  id             String    @id @default(uuid()) @db.Uuid
+  nutritionistId String    @map("nutritionist_id") @db.Uuid
+  firstName      String    @map("first_name")
+  lastName       String    @map("last_name")
+  sex            Sex
+  birthDate      DateTime  @map("birth_date") @db.Date
+  documentId     String?   @map("document_id")
+  phone          String?
+  email          String?
+  occupation     String?
+  address        String?
+  // Motivo de consulta y objetivo general del paciente.
+  reason         String?
+  goal           String?
+  notes          String?
+  archivedAt     DateTime? @map("archived_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  nutritionist  User              @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
+  background    PatientBackground?
+  dietHistory   DietHistory?
+  labResults    LabResult[]
+  medications   Medication[]
+  appointments  Appointment[]
+  consultations Consultation[]
+  mealPlans     MealPlan[]
+
+  @@index([nutritionistId, archivedAt])
+  @@index([nutritionistId, lastName])
+  @@map("patients")
+}
+
+// Antecedentes clínicos (uno por paciente).
+model PatientBackground {
+  id                String   @id @default(uuid()) @db.Uuid
+  patientId         String   @unique @map("patient_id") @db.Uuid
+  pathological      String?
+  family            String?
+  surgical          String?
+  allergies         String?
+  intolerances      String?
+  gastrointestinal  String?
+  // Para mujeres: ciclo, embarazo, lactancia, menopausia.
+  gynecological     String?
+  smoking           String?
+  alcohol           String?
+  physicalActivity  String?  @map("physical_activity")
+  sleep             String?
+  stress            String?
+  notes             String?
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("patient_backgrounds")
+}
+
+// Historia alimentaria (una por paciente, se actualiza en cada consulta).
+model DietHistory {
+  id              String   @id @default(uuid()) @db.Uuid
+  patientId       String   @unique @map("patient_id") @db.Uuid
+  mealsPerDay     Int?     @map("meals_per_day")
+  recall24h       String?  @map("recall_24h")
+  foodFrequency   String?  @map("food_frequency")
+  preferences     String?
+  aversions       String?
+  waterIntake     String?  @map("water_intake")
+  appetite        String?
+  eatsOutside     String?  @map("eats_outside")
+  whoCooks        String?  @map("who_cooks")
+  supplements     String?
+  previousDiets   String?  @map("previous_diets")
+  notes           String?
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("diet_histories")
+}
+
+model LabResult {
+  id        String   @id @default(uuid()) @db.Uuid
+  patientId String   @map("patient_id") @db.Uuid
+  takenOn   DateTime @map("taken_on") @db.Date
+  name      String
+  value     String
+  unit      String?
+  reference String?
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, takenOn])
+  @@map("lab_results")
+}
+
+model Medication {
+  id        String    @id @default(uuid()) @db.Uuid
+  patientId String    @map("patient_id") @db.Uuid
+  name      String
+  dose      String?
+  frequency String?
+  // Suplemento en lugar de medicamento.
+  isSupplement Boolean @default(false) @map("is_supplement")
+  startedOn DateTime? @map("started_on") @db.Date
+  endedOn   DateTime? @map("ended_on") @db.Date
+  notes     String?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("medications")
+}
+
+// ─────────────────────────────────────────────
+// Agenda
+// ─────────────────────────────────────────────
+
+model Appointment {
+  id              String            @id @default(uuid()) @db.Uuid
+  nutritionistId  String            @map("nutritionist_id") @db.Uuid
+  patientId       String            @map("patient_id") @db.Uuid
+  startsAt        DateTime          @map("starts_at")
+  durationMinutes Int               @default(45) @map("duration_minutes")
+  type            AppointmentType   @default(CONTROL)
+  status          AppointmentStatus @default(SCHEDULED)
+  notes           String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  nutritionist User          @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
+  patient      Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  consultation Consultation?
+
+  @@index([nutritionistId, startsAt])
+  @@map("appointments")
+}
+
+// ─────────────────────────────────────────────
+// Consultas, evaluación y seguimiento
+// ─────────────────────────────────────────────
+
+// Una consulta es la evaluación inicial o un seguimiento. Guarda medidas,
+// diagnóstico y, en los seguimientos, síntomas, adherencia y cambios del tratamiento.
+model Consultation {
+  id             String           @id @default(uuid()) @db.Uuid
+  nutritionistId String           @map("nutritionist_id") @db.Uuid
+  patientId      String           @map("patient_id") @db.Uuid
+  appointmentId  String?          @unique @map("appointment_id") @db.Uuid
+  type           ConsultationType @default(INITIAL)
+  date           DateTime         @db.Date
+  reason         String?
+
+  // Antropometría
+  weightKg       Decimal?         @map("weight_kg") @db.Decimal(5, 2)
+  heightCm       Decimal?         @map("height_cm") @db.Decimal(5, 1)
+  waistCm        Decimal?         @map("waist_cm") @db.Decimal(5, 1)
+  hipCm          Decimal?         @map("hip_cm") @db.Decimal(5, 1)
+  armCm          Decimal?         @map("arm_cm") @db.Decimal(4, 1)
+  calfCm         Decimal?         @map("calf_cm") @db.Decimal(4, 1)
+  neckCm         Decimal?         @map("neck_cm") @db.Decimal(4, 1)
+  bodyFatPct     Decimal?         @map("body_fat_pct") @db.Decimal(4, 1)
+  muscleMassKg   Decimal?         @map("muscle_mass_kg") @db.Decimal(5, 2)
+  visceralFat    Decimal?         @map("visceral_fat") @db.Decimal(4, 1)
+  // Pliegues u otras medidas libres: { "tricipital": 18, ... }
+  extraMeasures  Json?            @map("extra_measures")
+  systolicBp     Int?             @map("systolic_bp")
+  diastolicBp    Int?             @map("diastolic_bp")
+
+  // Evaluación clínica y diagnóstico
+  clinicalFindings String?        @map("clinical_findings")
+  diagnosis      String?
+  // Seguimiento
+  symptoms       String?
+  adherencePct   Int?             @map("adherence_pct")
+  treatmentChanges String?        @map("treatment_changes")
+  notes          String?
+  nextSteps      String?          @map("next_steps")
+
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  nutritionist User        @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
+  patient      Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointment  Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  mealPlans    MealPlan[]
+
+  @@index([patientId, date])
+  @@index([nutritionistId, date])
+  @@map("consultations")
+}
+
+// ─────────────────────────────────────────────
+// Intercambios y alimentos
+// ─────────────────────────────────────────────
+
+// Sistema de intercambios: "Tradicional" (listas clásicas) o "Panamá".
+model ExchangeSystem {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  description String?
+  source      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  groups ExchangeGroup[]
+
+  @@map("exchange_systems")
+}
+
+// Grupo de intercambio con su aporte por porción (equivalente).
+model ExchangeGroup {
+  id        String  @id @default(uuid()) @db.Uuid
+  systemId  String  @map("system_id") @db.Uuid
+  // Clave estable para cálculos: CEREALS, FRUITS, VEGETABLES, MILK_SKIM, MEAT_LEAN, FAT...
+  key       String
+  // Familia a la que pertenece (los subgrupos de carnes o lácteos comparten familia).
+  family    String
+  name      String
+  kcal      Decimal @db.Decimal(6, 1)
+  choG      Decimal @map("cho_g") @db.Decimal(5, 1)
+  proG      Decimal @map("pro_g") @db.Decimal(5, 1)
+  fatG      Decimal @map("fat_g") @db.Decimal(5, 1)
+  // Porción de referencia, p. ej. "1 porción = 15 g de carbohidratos".
+  portionHint String? @map("portion_hint")
+  color     String  @default("#4f8a5b")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  system ExchangeSystem @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  foods  Food[]
+
+  @@unique([systemId, key])
+  @@map("exchange_groups")
+}
+
+model Food {
+  id              String     @id @default(uuid()) @db.Uuid
+  // null = alimento del catálogo general; con valor = alimento propio de una nutricionista.
+  nutritionistId  String?    @map("nutritionist_id") @db.Uuid
+  // Clave de los alimentos del catálogo (para recargarlos sin duplicar).
+  code            String?    @unique
+  groupId         String?    @map("group_id") @db.Uuid
+  source          FoodSource
+  name            String
+  category        String
+  // Porción equivalente a 1 intercambio de su grupo.
+  portionText     String     @map("portion_text")
+  portionGrams    Decimal?   @map("portion_grams") @db.Decimal(6, 1)
+  kcal            Decimal    @db.Decimal(6, 1)
+  choG            Decimal    @map("cho_g") @db.Decimal(5, 1)
+  proG            Decimal    @map("pro_g") @db.Decimal(5, 1)
+  fatG            Decimal    @map("fat_g") @db.Decimal(5, 1)
+  fiberG          Decimal?   @map("fiber_g") @db.Decimal(5, 1)
+  notes           String?
+  active          Boolean    @default(true)
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  nutritionist User?          @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
+  group        ExchangeGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  recipeItems  RecipeIngredient[]
+  planItems    MealPlanItem[]
+
+  @@index([nutritionistId])
+  @@index([groupId])
+  @@map("foods")
+}
+
+model Recipe {
+  id             String   @id @default(uuid()) @db.Uuid
+  nutritionistId String?  @map("nutritionist_id") @db.Uuid
+  name           String
+  description    String?
+  servings       Int      @default(1)
+  instructions   String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  nutritionist User?              @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
+  ingredients  RecipeIngredient[]
+  planItems    MealPlanItem[]
+
+  @@index([nutritionistId])
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id        String  @id @default(uuid()) @db.Uuid
+  recipeId  String  @map("recipe_id") @db.Uuid
+  foodId    String  @map("food_id") @db.Uuid
+  // Cantidad en porciones del alimento (intercambios).
+  servings  Decimal @db.Decimal(5, 2)
+  note      String?
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  food   Food   @relation(fields: [foodId], references: [id], onDelete: Cascade)
+
+  @@map("recipe_ingredients")
+}
+
+// ─────────────────────────────────────────────
+// Plan alimentario
+// ─────────────────────────────────────────────
+
+model MealPlan {
+  id             String         @id @default(uuid()) @db.Uuid
+  nutritionistId String         @map("nutritionist_id") @db.Uuid
+  patientId      String         @map("patient_id") @db.Uuid
+  consultationId String?        @map("consultation_id") @db.Uuid
+  title          String
+  status         MealPlanStatus @default(DRAFT)
+
+  // 1. Energía
+  calorieMethod  CalorieMethod  @default(AUTOMATIC) @map("calorie_method")
+  equation       EnergyEquation?
+  weightKg       Decimal?       @map("weight_kg") @db.Decimal(5, 2)
+  heightCm       Decimal?       @map("height_cm") @db.Decimal(5, 1)
+  ageYears       Int?           @map("age_years")
+  sex            Sex?
+  bodyFatPct     Decimal?       @map("body_fat_pct") @db.Decimal(4, 1)
+  kcalPerKg      Decimal?       @map("kcal_per_kg") @db.Decimal(4, 1)
+  activityFactor Decimal?       @map("activity_factor") @db.Decimal(4, 3)
+  // Gasto energético en reposo y total calculados.
+  restingKcal    Int?           @map("resting_kcal")
+  totalKcal      Int?           @map("total_kcal")
+  // Ajuste: porcentaje (-15 = déficit del 15 %) o kcal fijas.
+  adjustmentPct  Int?           @map("adjustment_pct")
+  adjustmentKcal Int?           @map("adjustment_kcal")
+  targetKcal     Int            @map("target_kcal")
+
+  // 2. Macronutrientes (porcentaje de la energía)
+  choPct         Int            @map("cho_pct")
+  proPct         Int            @map("pro_pct")
+  fatPct         Int            @map("fat_pct")
+
+  // 3. Intercambios
+  exchangeMode   ExchangeMode   @map("exchange_mode")
+  systemId       String         @map("system_id") @db.Uuid
+
+  objectives      String[]      @default([])
+  recommendations String?
+  notes           String?
+  approvedAt      DateTime?     @map("approved_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  nutritionist User           @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
+  patient      Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  consultation Consultation?  @relation(fields: [consultationId], references: [id], onDelete: SetNull)
+  exchanges    MealPlanExchange[]
+  meals        MealPlanMeal[]
+
+  @@index([patientId, createdAt])
+  @@index([nutritionistId, status])
+  @@map("meal_plans")
+}
+
+// Intercambios diarios por grupo.
+model MealPlanExchange {
+  id       String  @id @default(uuid()) @db.Uuid
+  planId   String  @map("plan_id") @db.Uuid
+  groupKey String  @map("group_key")
+  servings Decimal @db.Decimal(4, 1)
+
+  plan MealPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, groupKey])
+  @@map("meal_plan_exchanges")
+}
+
+// Tiempo de comida (desayuno, merienda, almuerzo...).
+model MealPlanMeal {
+  id        String  @id @default(uuid()) @db.Uuid
+  planId    String  @map("plan_id") @db.Uuid
+  name      String
+  time      String?
+  sortOrder Int     @default(0) @map("sort_order")
+  // Intercambios de este tiempo: { "CEREALS": 2, "FRUITS": 1 }
+  exchanges Json    @default("{}")
+  notes     String?
+
+  plan  MealPlan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  items MealPlanItem[]
+
+  @@index([planId])
+  @@map("meal_plan_meals")
+}
+
+// Alimento o receta del menú. Las sustituciones apuntan al ítem que reemplazan.
+model MealPlanItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  mealId         String   @map("meal_id") @db.Uuid
+  foodId         String?  @map("food_id") @db.Uuid
+  recipeId       String?  @map("recipe_id") @db.Uuid
+  customName     String?  @map("custom_name")
+  // Porciones (intercambios) del alimento, o raciones de la receta.
+  servings       Decimal  @db.Decimal(5, 2)
+  substituteOfId String?  @map("substitute_of_id") @db.Uuid
+  notes          String?
+  sortOrder      Int      @default(0) @map("sort_order")
+
+  meal         MealPlanMeal   @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  food         Food?          @relation(fields: [foodId], references: [id], onDelete: SetNull)
+  recipe       Recipe?        @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  substituteOf MealPlanItem?  @relation("Substitutions", fields: [substituteOfId], references: [id], onDelete: Cascade)
+  substitutes  MealPlanItem[] @relation("Substitutions")
+
+  @@index([mealId])
+  @@map("meal_plan_items")
+}
