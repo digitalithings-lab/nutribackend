@@ -50,6 +50,9 @@ enum AppointmentType {
 }
 
 enum AppointmentStatus {
+  // Solicitada por el paciente desde la app; espera respuesta de la nutricionista.
+  REQUESTED
+  REJECTED
   SCHEDULED
   COMPLETED
   CANCELLED
@@ -129,6 +132,8 @@ model User {
   defaultChoPct       Int            @default(50) @map("default_cho_pct")
   defaultProPct       Int            @default(20) @map("default_pro_pct")
   defaultFatPct       Int            @default(30) @map("default_fat_pct")
+  // Código fijo que los pacientes escriben en la app para vincularse con la nutricionista.
+  linkCode            String?        @unique @map("link_code")
   lastLoginAt   DateTime?  @map("last_login_at")
   createdAt     DateTime   @default(now()) @map("created_at")
   updatedAt     DateTime   @updatedAt @map("updated_at")
@@ -242,6 +247,8 @@ model Patient {
   userId          String?   @unique @map("user_id") @db.Uuid
   inviteCode      String?   @unique @map("invite_code")
   inviteExpiresAt DateTime? @map("invite_expires_at")
+  // Se registró solo desde la app con el código de la nutricionista.
+  createdFromApp  Boolean   @default(false) @map("created_from_app")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -360,6 +367,10 @@ model Appointment {
   type            AppointmentType   @default(CONTROL)
   status          AppointmentStatus @default(SCHEDULED)
   notes           String?
+  // true si la pidió el paciente desde la app.
+  requestedByPatient Boolean        @default(false) @map("requested_by_patient")
+  // Respuesta de la nutricionista al aceptar o rechazar (p. ej. el motivo del rechazo).
+  responseNote    String?           @map("response_note")
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 

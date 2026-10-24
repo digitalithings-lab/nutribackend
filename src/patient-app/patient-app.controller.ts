@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { AuthUser, CurrentUser } from "../common/auth.decorators";
 import { Roles } from "../common/roles";
-import { FoodLogDto, FoodScanDto, WeightDto } from "./patient-app.dto";
+import { AppointmentRequestDto, FoodLogDto, FoodScanDto, WeightDto } from "./patient-app.dto";
 import { PatientAppService } from "./patient-app.service";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -100,5 +100,23 @@ export class PatientAppController {
   @Get("appointments")
   appointments(@CurrentUser() user: AuthUser) {
     return this.app.appointments(user.id);
+  }
+
+  @Get("appointments/busy")
+  busy(@CurrentUser() user: AuthUser, @Query("date") date?: string) {
+    const valid = validDate(date);
+    if (!valid) throw new BadRequestException("Indica la fecha (YYYY-MM-DD)");
+    return this.app.busy(user.id, valid);
+  }
+
+  @Post("appointments")
+  requestAppointment(@CurrentUser() user: AuthUser, @Body() dto: AppointmentRequestDto) {
+    return this.app.requestAppointment(user.id, dto);
+  }
+
+  @Post("appointments/:appointmentId/cancel")
+  @HttpCode(200)
+  cancelAppointment(@CurrentUser() user: AuthUser, @Param("appointmentId", ParseUUIDPipe) id: string) {
+    return this.app.cancelAppointment(user.id, id);
   }
 }

@@ -1,7 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Prisma, SubscriptionStatus, User, UserRole, UserStatus } from "@prisma/client";
+import { assertCanAddPatient } from "../common/access";
+import { normalizeCode, randomCode } from "../common/codes";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../common/crypto";
+import { dateFromString } from "../common/dates";
 import { config } from "../config";
 import { PrismaService } from "../prisma/prisma.service";
 import { RegisterPatientDto } from "../patient-app/patient-app.dto";
@@ -32,6 +35,7 @@ export class AuthService {
           licenseNumber: dto.licenseNumber?.trim() || null,
           phone: dto.phone?.trim() || null,
           clinicName: dto.clinicName?.trim() || null,
+          linkCode: randomCode(6),
           subscription: plan
             ? {
                 create: {
@@ -52,24 +56,76 @@ export class AuthService {
     }
   }
 
-  // Activación de la app por un paciente con el código que le dio su nutricionista.
-  async registerPatient(dto: RegisterPatientDto, deviceName?: string) {
-    const patient = await this.prisma.patient.findUnique({ where: { inviteCode: dto.code } });
-    if (!patient || patient.userId || patient.archivedAt || !patient.inviteExpiresAt || patient.inviteExpiresAt < new Date()) {
-      throw new BadRequestException("El código no es válido o ya venció. Pide uno nuevo a tu nutricionista.");
+  // Qué representa un código: la invitación a un expediente existente o el código de una nutricionista.
+  async lookupCode(rawCode: string) {
+    const code = normalizeCode(rawCode);
+    const patient = await this.prisma.patient.findUnique({
+      where: { inviteCode: code },
+      include: { nutritionist: { select: { fullName: true, clinicName: true } } },
+    });
+    if (patient && !patient.userId && patient.inviteExpiresAt && patient.inviteExpiresAt > new Date()) {
+      return { type: "INVITE" as const, firstName: patient.firstName, nutritionist: patient.nutritionist };
     }
+    const nutritionist = await this.prisma.user.findUnique({ where: { linkCode: code } });
+    if (nutritionist && nutritionist.role === UserRole.NUTRITIONIST && nutritionist.status === UserStatus.ACTIVE) {
+      return { type: "NUTRITIONIST" as const, nutritionist: { fullName: nutritionist.fullName, clinicName: nutritionist.clinicName } };
+    }
+    throw new NotFoundException("El código no es válido o ya venció. Pídele uno a tu nutricionista.");
+  }
+
+  // Activación de la app de un paciente. Con el código de invitación se vincula a su expediente;
+  // con el código de la nutricionista se crea un expediente nuevo con sus datos.
+  async registerPatient(dto: RegisterPatientDto, deviceName?: string) {
+    const lookup = await this.lookupCode(dto.code);
+    const code = normalizeCode(dto.code);
     const passwordHash = await hashPassword(dto.password);
+
     try {
       const user = await this.prisma.$transaction(async (tx) => {
+        if (lookup.type === "INVITE") {
+          const patient = await tx.patient.findUniqueOrThrow({ where: { inviteCode: code } });
+          const created = await tx.user.create({
+            data: { email: dto.email, passwordHash, role: UserRole.PATIENT, fullName: `${patient.firstName} ${patient.lastName}` },
+          });
+          // El updateMany con userId null evita que dos registros usen el mismo código a la vez.
+          const linked = await tx.patient.updateMany({
+            where: { id: patient.id, userId: null },
+            data: { userId: created.id, inviteCode: null, inviteExpiresAt: null },
+          });
+          if (linked.count === 0) throw new ConflictException("Este código ya se usó");
+          return created;
+        }
+
+        if (!dto.firstName?.trim() || !dto.lastName?.trim() || !dto.sex || !dto.birthDate) {
+          throw new BadRequestException("Completa tu nombre, apellido, sexo y fecha de nacimiento");
+        }
+        const birthDate = dateFromString(dto.birthDate);
+        if (Number.isNaN(birthDate.getTime()) || birthDate > new Date()) {
+          throw new BadRequestException("La fecha de nacimiento no es válida");
+        }
+        const nutritionist = await tx.user.findUniqueOrThrow({ where: { linkCode: code } });
+        await assertCanAddPatient(this.prisma, nutritionist.id);
         const created = await tx.user.create({
-          data: { email: dto.email, passwordHash, role: UserRole.PATIENT, fullName: `${patient.firstName} ${patient.lastName}` },
+          data: {
+            email: dto.email,
+            passwordHash,
+            role: UserRole.PATIENT,
+            fullName: `${dto.firstName.trim()} ${dto.lastName.trim()}`,
+          },
         });
-        // El updateMany con userId null evita que dos registros usen el mismo código a la vez.
-        const linked = await tx.patient.updateMany({
-          where: { id: patient.id, userId: null },
-          data: { userId: created.id, inviteCode: null, inviteExpiresAt: null },
+        await tx.patient.create({
+          data: {
+            nutritionistId: nutritionist.id,
+            userId: created.id,
+            firstName: dto.firstName.trim(),
+            lastName: dto.lastName.trim(),
+            sex: dto.sex,
+            birthDate,
+            email: dto.email,
+            phone: dto.phone?.trim() || null,
+            createdFromApp: true,
+          },
         });
-        if (linked.count === 0) throw new ConflictException("Este código ya se usó");
         return created;
       });
       return this.issueTokens(user, deviceName);
@@ -188,6 +244,7 @@ export function publicUser(user: Prisma.UserGetPayload<{ include: { subscription
     phone: user.phone,
     clinicName: user.clinicName,
     clinicAddress: user.clinicAddress,
+    linkCode: user.linkCode,
     country: user.country,
     timezone: user.timezone,
     defaults: {

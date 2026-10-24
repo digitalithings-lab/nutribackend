@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Post } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Param, Post } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { AuthUser, CurrentUser, Public } from "../common/auth.decorators";
 import { RegisterPatientDto } from "../patient-app/patient-app.dto";
@@ -17,6 +17,14 @@ export class AuthController {
   @Post("register")
   register(@Body() dto: RegisterDto, @Headers("x-device-name") deviceName?: string) {
     return this.auth.register(dto, deviceName);
+  }
+
+  // La app consulta el código antes de pedir los datos del paciente.
+  @Public()
+  @Throttle(AUTH_THROTTLE)
+  @Get("link-code/:code")
+  lookupCode(@Param("code") code: string) {
+    return this.auth.lookupCode(code.slice(0, 20));
   }
 
   @Public()

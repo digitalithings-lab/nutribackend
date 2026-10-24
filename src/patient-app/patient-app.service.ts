@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { randomInt } from "node:crypto";
 import { FoodLogSource, Prisma } from "@prisma/client";
+import { assertNoOverlap } from "../appointments/appointments.controller";
 import { ownedPatient } from "../common/access";
+import { randomCode } from "../common/codes";
 import { dateFromString, num } from "../common/dates";
 import { config } from "../config";
 import { MealPlansService } from "../meal-plans/meal-plans.service";
@@ -9,14 +10,7 @@ import { macroGrams, round } from "../nutrition/calc";
 import { PatientsService } from "../patients/patients.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { FoodVision } from "./food-vision";
-import { FoodItemDto, FoodLogDto, FoodScanDto, WeightDto } from "./patient-app.dto";
-
-// Sin 0/O ni 1/I para que el código se pueda dictar sin confusiones.
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-function inviteCode(): string {
-  return Array.from({ length: 8 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join("");
-}
+import { AppointmentRequestDto, FoodItemDto, FoodLogDto, FoodScanDto, WeightDto } from "./patient-app.dto";
 
 function totals(items: FoodItemDto[]) {
   const t = items.reduce(
@@ -54,7 +48,7 @@ export class PatientAppService {
       try {
         const updated = await this.prisma.patient.update({
           where: { id: patientId },
-          data: { inviteCode: inviteCode(), inviteExpiresAt: expiresAt },
+          data: { inviteCode: randomCode(), inviteExpiresAt: expiresAt },
         });
         return { code: updated.inviteCode, expiresAt };
       } catch (err) {
@@ -358,13 +352,83 @@ export class PatientAppService {
     if (!deleted.count) throw new NotFoundException("Registro no encontrado");
   }
 
+  // Citas próximas (incluye solicitudes) y las rechazadas o canceladas recientes, para que vea la respuesta.
   async appointments(userId: string) {
     const patient = await this.current(userId);
+    const recent = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
     return this.prisma.appointment.findMany({
-      where: { patientId: patient.id, startsAt: { gte: new Date(Date.now() - 2 * 60 * 60 * 1000) }, status: "SCHEDULED" },
+      where: {
+        patientId: patient.id,
+        OR: [
+          { startsAt: { gte: new Date(Date.now() - 2 * 60 * 60 * 1000) } },
+          { status: { in: ["REJECTED", "CANCELLED", "COMPLETED"] }, updatedAt: { gte: recent } },
+        ],
+      },
       orderBy: { startsAt: "asc" },
-      take: 10,
-      select: { id: true, startsAt: true, durationMinutes: true, type: true, status: true },
+      take: 30,
+      select: {
+        id: true,
+        startsAt: true,
+        durationMinutes: true,
+        type: true,
+        status: true,
+        notes: true,
+        responseNote: true,
+        requestedByPatient: true,
+        updatedAt: true,
+      },
     });
+  }
+
+  // Horarios ocupados de la nutricionista en un día (sin datos de otros pacientes).
+  async busy(userId: string, date: string) {
+    const patient = await this.current(userId);
+    const day = new Date(`${date}T00:00:00Z`);
+    // Margen de un día a cada lado para cubrir cualquier zona horaria.
+    const from = new Date(day.getTime() - 24 * 60 * 60 * 1000);
+    const to = new Date(day.getTime() + 48 * 60 * 60 * 1000);
+    const appointments = await this.prisma.appointment.findMany({
+      where: { nutritionistId: patient.nutritionistId, status: { in: ["SCHEDULED", "REQUESTED"] }, startsAt: { gte: from, lt: to } },
+      select: { startsAt: true, durationMinutes: true, status: true, patientId: true },
+    });
+    return appointments.map((a) => ({
+      startsAt: a.startsAt,
+      endsAt: new Date(a.startsAt.getTime() + a.durationMinutes * 60_000),
+      mine: a.patientId === patient.id,
+      confirmed: a.status === "SCHEDULED",
+    }));
+  }
+
+  async requestAppointment(userId: string, dto: AppointmentRequestDto) {
+    const patient = await this.current(userId);
+    const startsAt = new Date(dto.startsAt);
+    if (startsAt.getTime() < Date.now() + 60 * 60 * 1000) {
+      throw new BadRequestException("Elige una hora con al menos una hora de anticipación");
+    }
+    const pending = await this.prisma.appointment.count({ where: { patientId: patient.id, status: "REQUESTED" } });
+    if (pending >= 3) throw new BadRequestException("Ya tienes solicitudes pendientes. Espera la respuesta de tu nutricionista.");
+    await assertNoOverlap(this.prisma, patient.nutritionistId, startsAt, 45, undefined, () => "Ese horario ya está ocupado. Elige otro.");
+    const hasConsultations = await this.prisma.consultation.count({ where: { patientId: patient.id } });
+    return this.prisma.appointment.create({
+      data: {
+        nutritionistId: patient.nutritionistId,
+        patientId: patient.id,
+        startsAt,
+        durationMinutes: 45,
+        type: dto.type ?? (hasConsultations ? "FOLLOW_UP" : "FIRST_VISIT"),
+        status: "REQUESTED",
+        notes: dto.notes?.trim() || null,
+        requestedByPatient: true,
+      },
+    });
+  }
+
+  async cancelAppointment(userId: string, id: string) {
+    const patient = await this.current(userId);
+    const appointment = await this.prisma.appointment.findFirst({ where: { id, patientId: patient.id } });
+    if (!appointment) throw new NotFoundException("Cita no encontrada");
+    if (!["REQUESTED", "SCHEDULED"].includes(appointment.status)) throw new BadRequestException("Esta cita ya no se puede cancelar");
+    if (appointment.startsAt < new Date()) throw new BadRequestException("La cita ya pasó");
+    return this.prisma.appointment.update({ where: { id }, data: { status: "CANCELLED" } });
   }
 }

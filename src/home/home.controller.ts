@@ -18,10 +18,10 @@ export class HomeController {
     const followUpLimit = new Date(Date.now() - FOLLOW_UP_DAYS * 24 * 60 * 60 * 1000);
     const nutritionistId = user.id;
 
-    const [activePatients, today, upcoming, draftPlans, patients] = await Promise.all([
+    const [activePatients, today, upcoming, draftPlans, patients, requests] = await Promise.all([
       this.prisma.patient.count({ where: { nutritionistId, archivedAt: null } }),
       this.prisma.appointment.findMany({
-        where: { nutritionistId, startsAt: { gte: startOfDay, lt: endOfDay }, status: { not: "CANCELLED" } },
+        where: { nutritionistId, startsAt: { gte: startOfDay, lt: endOfDay }, status: { in: ["SCHEDULED", "COMPLETED", "NO_SHOW"] } },
         orderBy: { startsAt: "asc" },
         include: { patient: { select: { id: true, firstName: true, lastName: true } } },
       }),
@@ -59,6 +59,11 @@ export class HomeController {
           consultations: { orderBy: { date: "desc" }, take: 1, select: { date: true } },
         },
       }),
+      this.prisma.appointment.findMany({
+        where: { nutritionistId, status: "REQUESTED", startsAt: { gte: new Date() } },
+        orderBy: { startsAt: "asc" },
+        include: { patient: { select: { id: true, firstName: true, lastName: true } } },
+      }),
     ]);
 
     return {
@@ -67,7 +72,9 @@ export class HomeController {
         appointmentsToday: today.length,
         pendingFollowUps: patients.length,
         plansToReview: draftPlans.length,
+        appointmentRequests: requests.length,
       },
+      requests,
       today,
       upcoming,
       draftPlans,

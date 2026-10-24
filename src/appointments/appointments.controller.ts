@@ -33,6 +33,8 @@ export class UpdateAppointmentDto {
   @IsOptional() @IsEnum(AppointmentType) type?: AppointmentType;
   @IsOptional() @IsEnum(AppointmentStatus) status?: AppointmentStatus;
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+  // Mensaje para el paciente al aceptar o rechazar su solicitud.
+  @IsOptional() @IsString() @MaxLength(500) responseNote?: string;
 }
 
 const MAX_RANGE_DAYS = 62;
@@ -68,7 +70,7 @@ export class AppointmentsController {
     const patient = await ownedPatient(this.prisma, user.id, dto.patientId);
     if (patient.archivedAt) throw new BadRequestException("El paciente está archivado");
     const startsAt = new Date(dto.startsAt);
-    await this.assertNoOverlap(user.id, startsAt, dto.durationMinutes ?? 45);
+    await assertNoOverlap(this.prisma, user.id, startsAt, dto.durationMinutes ?? 45);
     return this.prisma.appointment.create({
       data: { ...dto, startsAt, nutritionistId: user.id },
       include: { patient: { select: { id: true, firstName: true, lastName: true } } },
@@ -79,8 +81,10 @@ export class AppointmentsController {
   async update(@CurrentUser() user: AuthUser, @Param("id", ParseUUIDPipe) id: string, @Body() dto: UpdateAppointmentDto) {
     const current = await this.owned(user.id, id);
     const startsAt = dto.startsAt ? new Date(dto.startsAt) : undefined;
-    if (startsAt || dto.durationMinutes) {
-      await this.assertNoOverlap(user.id, startsAt ?? current.startsAt, dto.durationMinutes ?? current.durationMinutes, id);
+    // Al aceptar una solicitud o mover una cita confirmada, la hora debe estar libre.
+    const willBeScheduled = (dto.status ?? current.status) === "SCHEDULED";
+    if (willBeScheduled && (startsAt || dto.durationMinutes || current.status !== "SCHEDULED")) {
+      await assertNoOverlap(this.prisma, user.id, startsAt ?? current.startsAt, dto.durationMinutes ?? current.durationMinutes, id);
     }
     return this.prisma.appointment.update({
       where: { id },
@@ -101,22 +105,31 @@ export class AppointmentsController {
     if (!appointment) throw new NotFoundException("Cita no encontrada");
     return appointment;
   }
+}
 
-  // Evita dos citas a la misma hora.
-  private async assertNoOverlap(nutritionistId: string, startsAt: Date, minutes: number, exceptId?: string) {
-    const endsAt = new Date(startsAt.getTime() + minutes * 60_000);
-    const sameDay = await this.prisma.appointment.findMany({
-      where: {
-        nutritionistId,
-        status: "SCHEDULED",
-        id: exceptId ? { not: exceptId } : undefined,
-        startsAt: { gte: new Date(startsAt.getTime() - 24 * 60 * 60 * 1000), lt: endsAt },
-      },
-      include: { patient: { select: { firstName: true, lastName: true } } },
-    });
-    const clash = sameDay.find((a) => a.startsAt.getTime() + a.durationMinutes * 60_000 > startsAt.getTime());
-    if (clash) {
-      throw new BadRequestException(`Ya tienes una cita a esa hora con ${clash.patient.firstName} ${clash.patient.lastName}`);
-    }
+// Evita dos citas confirmadas a la misma hora.
+export async function assertNoOverlap(
+  prisma: PrismaService,
+  nutritionistId: string,
+  startsAt: Date,
+  minutes: number,
+  exceptId?: string,
+  message?: (clash: { firstName: string; lastName: string }) => string,
+) {
+  const endsAt = new Date(startsAt.getTime() + minutes * 60_000);
+  const sameDay = await prisma.appointment.findMany({
+    where: {
+      nutritionistId,
+      status: "SCHEDULED",
+      id: exceptId ? { not: exceptId } : undefined,
+      startsAt: { gte: new Date(startsAt.getTime() - 24 * 60 * 60 * 1000), lt: endsAt },
+    },
+    include: { patient: { select: { firstName: true, lastName: true } } },
+  });
+  const clash = sameDay.find((a) => a.startsAt.getTime() + a.durationMinutes * 60_000 > startsAt.getTime());
+  if (clash) {
+    throw new BadRequestException(
+      message ? message(clash.patient) : `Ya tienes una cita a esa hora con ${clash.patient.firstName} ${clash.patient.lastName}`,
+    );
   }
 }

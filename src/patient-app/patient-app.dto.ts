@@ -4,6 +4,7 @@ import {
   IsArray,
   IsEmail,
   IsIn,
+  IsISO8601,
   IsNumber,
   IsOptional,
   IsString,
@@ -33,6 +34,19 @@ export class RegisterPatientDto {
   @MinLength(8, { message: "La contraseña debe tener al menos 8 caracteres" })
   @MaxLength(128)
   password: string;
+
+  // Obligatorios cuando el código es el de la nutricionista (se crea un expediente nuevo).
+  @IsOptional() @IsString() @Length(1, 60) firstName?: string;
+  @IsOptional() @IsString() @Length(1, 60) lastName?: string;
+  @IsOptional() @IsIn(["FEMALE", "MALE"]) sex?: "FEMALE" | "MALE";
+  @IsOptional() @Matches(DATE, { message: DATE_MESSAGE }) birthDate?: string;
+  @IsOptional() @IsString() @MaxLength(30) phone?: string;
+}
+
+export class AppointmentRequestDto {
+  @IsISO8601({}, { message: "La fecha y hora no son válidas" }) startsAt: string;
+  @IsOptional() @IsIn(["FIRST_VISIT", "CONTROL", "FOLLOW_UP"]) type?: "FIRST_VISIT" | "CONTROL" | "FOLLOW_UP";
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
 }
 
 export class FoodScanDto {

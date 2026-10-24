@@ -68,7 +68,7 @@ Todas exigen `Authorization: Bearer <accessToken>`, salvo las marcadas como púb
 | POST, PUT, DELETE | `/patients/:id/labs[/:labId]` · `/medications[/:medId]` | Laboratorios · medicamentos |
 | GET | `/patients/:id/evolution` | Serie de medidas e indicadores |
 | GET / POST | `/appointments` | Agenda (`?from=&to=`) / nueva cita |
-| PATCH / DELETE | `/appointments/:id` | Reprogramar, cambiar estado / borrar |
+| PATCH / DELETE | `/appointments/:id` | Reprogramar, cambiar estado (aceptar `SCHEDULED` o rechazar `REJECTED` una solicitud, con `responseNote`) / borrar |
 | GET / POST | `/patients/:id/consultations` | Consultas del paciente / nueva |
 | GET / PATCH / DELETE | `/consultations/:id` | Detalle con indicadores / editar / borrar |
 | GET | `/exchange-systems` | Sistemas y grupos de intercambio |
@@ -87,7 +87,12 @@ Todas exigen `Authorization: Bearer <accessToken>`, salvo las marcadas como púb
 | GET | `/reports/patients/:id/progress.pdf` | Informe de progreso |
 | POST / DELETE | `/patients/:id/app-invite` · `/patients/:id/app-access` | Código para activar la app · quitar acceso |
 | GET | `/patients/:id/app-activity` | Comidas y pesos registrados por el paciente |
-| POST | `/auth/register-patient` | Activación de la app con el código (pública) |
+| GET | `/auth/link-code/:code` | Qué es un código: invitación a un expediente o código de una nutricionista (pública) |
+| POST | `/auth/register-patient` | Activación de la app con cualquiera de los dos códigos (pública) |
+| POST | `/account/link-code` | Generar un código de vinculación nuevo para la nutricionista |
+| GET / POST | `/me/appointments` | Citas del paciente / solicitar una (queda `REQUESTED` hasta que la nutricionista la acepte) |
+| GET | `/me/appointments/busy?date=` | Horarios ocupados de la nutricionista ese día |
+| POST | `/me/appointments/:id/cancel` | Cancelar una cita o solicitud |
 | GET | `/me` · `/me/plan` · `/me/exchange-list` · `/me/day?date=` | App del paciente: perfil, plan aprobado, intercambios, resumen del día |
 | POST | `/me/food-scans` | Foto (base64) → estimación de calorías con Groq y comparación con el plan |
 | GET / POST / DELETE | `/me/food-logs` · `/me/weights` | Comidas y pesos del paciente |
