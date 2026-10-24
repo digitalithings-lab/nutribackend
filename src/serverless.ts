@@ -11,5 +11,11 @@ export default async function handler(req: Request, res: Response) {
     await app.init();
     return app.getHttpAdapter().getInstance() as Handler;
   });
-  (await server)(req, res);
+  try {
+    (await server)(req, res);
+  } catch (err) {
+    // Permite reintentar en la siguiente petición (p. ej. si la base de datos no respondía).
+    server = undefined;
+    throw err;
+  }
 }
