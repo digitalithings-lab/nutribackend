@@ -318,6 +318,10 @@ export class MealPlansService {
   async setMeals(nutritionistId: string, id: string, dto: MealsDto) {
     const plan = await this.editable(nutritionistId, id);
     if (dto.meals.length === 0) throw new BadRequestException("El plan necesita al menos un tiempo de comida");
+    // El nombre identifica el tiempo de comida en la app del paciente: no puede repetirse.
+    const names = dto.meals.map((m) => m.name.trim().toLowerCase());
+    const repeated = names.find((n, i) => names.indexOf(n) !== i);
+    if (repeated) throw new BadRequestException(`Hay dos tiempos de comida con el nombre «${dto.meals.find((m) => m.name.trim().toLowerCase() === repeated)!.name.trim()}»`);
     const existing = new Set(plan.meals.map((m) => m.id));
     const keep = dto.meals.filter((m) => m.id && existing.has(m.id)).map((m) => m.id!);
 
