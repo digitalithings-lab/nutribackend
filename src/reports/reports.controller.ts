@@ -243,7 +243,8 @@ export class ReportsService {
     pdf.section("Antropometría");
     pdf.fields(
       [
-        ["Peso", fmt(num(c.weightKg), "kg")],
+        ["Peso actual", fmt(num(c.weightKg), "kg")],
+        ["Peso habitual", fmt(num(c.usualWeightKg), "kg")],
         ["Talla", fmt(num(c.heightCm), "cm")],
         ["Cintura", fmt(num(c.waistCm), "cm")],
         ["Cadera", fmt(num(c.hipCm), "cm")],
@@ -258,8 +259,8 @@ export class ReportsService {
     if (c.indicators.length) {
       pdf.table(
         ["Indicador", "Valor", "Interpretación"],
-        c.indicators.map((i) => [i.label, `${i.value} ${i.unit}`.trim(), i.status ?? ""]),
-        [0.4, 0.25, 0.35],
+        c.indicators.map((i) => [i.formula ? `${i.label}\n${i.formula}` : i.label, `${i.value} ${i.unit}`.trim(), i.status ?? ""]),
+        [0.45, 0.2, 0.35],
       );
     }
 
@@ -388,11 +389,15 @@ export class ReportsService {
       [
         ["Método", plan.calorieMethod === "MANUAL" ? "Manual" : "Automático"],
         ["Ecuación", equation],
-        ["Peso usado", fmt(num(plan.weightKg), "kg")],
+        ["Peso actual", fmt(num(plan.weightKg), "kg")],
         ["Talla", fmt(num(plan.heightCm), "cm")],
         ["Edad", plan.ageYears ? `${plan.ageYears} años` : null],
         ["Sexo", plan.sex ? SEX[plan.sex] : null],
+        ["Peso para el cálculo", plan.energyWeight ? `${plan.energyWeight.weightKg} kg` : null],
         ["Factor de actividad", fmt(num(plan.activityFactor))],
+        ["Condición clínica", num(plan.stressFactor) && num(plan.stressFactor) !== 1 ? `× ${num(plan.stressFactor)}` : null],
+        ["Ejercicio", plan.exerciseKcal ? `${plan.exerciseKcal} kcal/día` : null],
+        ["Etapa fisiológica", plan.physiologicalKcal ? `+${plan.physiologicalKcal} kcal` : null],
         ["GER", plan.restingKcal ? `${plan.restingKcal} kcal` : null],
         ["GET", plan.totalKcal ? `${plan.totalKcal} kcal` : null],
         ["Ajuste", plan.adjustmentPct ? `${plan.adjustmentPct} %` : plan.adjustmentKcal ? `${plan.adjustmentKcal} kcal` : null],
@@ -401,6 +406,7 @@ export class ReportsService {
       ],
       4,
     );
+    if (plan.energyWeight) pdf.paragraph(plan.energyWeight.explanation, { muted: true, size: 9 });
 
     pdf.section("Validación");
     pdf.table(

@@ -6,6 +6,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsObject,
@@ -27,6 +28,24 @@ export class CreateMealPlanDto {
   @IsOptional() @IsString() @Length(2, 100) title?: string;
 }
 
+export class ExerciseDto {
+  @IsString() @Length(1, 40) type: string;
+  @Type(() => Number) @IsNumber() @Min(1) @Max(20) met: number;
+  @IsInt() @Min(1) @Max(7) daysPerWeek: number;
+  @IsInt() @Min(5) @Max(600) minutes: number;
+}
+
+export class ActivityDetailDto {
+  // Nivel de la actividad laboral o diaria, sin contar el ejercicio.
+  @IsOptional() @IsString() @MaxLength(80) occupation?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) @Max(24) sedentaryHours?: number;
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => ExerciseDto)
+  exercises: ExerciseDto[];
+}
+
 export class EnergyDto {
   @IsEnum(CalorieMethod) calorieMethod: CalorieMethod;
   @IsOptional() @IsEnum(EnergyEquation) equation?: EnergyEquation;
@@ -37,6 +56,11 @@ export class EnergyDto {
   @n(1, 75) bodyFatPct?: number;
   @n(5, 80) kcalPerKg?: number;
   @n(1, 2.5) activityFactor?: number;
+  @n(1, 2) stressFactor?: number;
+  // Peso para el cálculo: AUTO (según IMC), ACTUAL, IDEAL o ADJUSTED.
+  @IsOptional() @IsIn(["AUTO", "ACTUAL", "IDEAL", "ADJUSTED"]) weightBasis?: "AUTO" | "ACTUAL" | "IDEAL" | "ADJUSTED";
+  @IsOptional() @IsString() @MaxLength(20) physiologicalStage?: string;
+  @IsOptional() @ValidateNested() @Type(() => ActivityDetailDto) activityDetail?: ActivityDetailDto | null;
   @IsOptional() @IsInt() @Min(-50) @Max(50) adjustmentPct?: number | null;
   @IsOptional() @IsInt() @Min(-2000) @Max(2000) adjustmentKcal?: number | null;
   // Obligatorio en modo manual.

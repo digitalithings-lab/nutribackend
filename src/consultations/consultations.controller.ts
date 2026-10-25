@@ -20,7 +20,7 @@ import { ownedPatient } from "../common/access";
 import { AuthUser, CurrentUser } from "../common/auth.decorators";
 import { dateFromString, num } from "../common/dates";
 import { Roles } from "../common/roles";
-import { ageFrom, anthropometry } from "../nutrition/calc";
+import { ageFrom, anthropometry, armIndices, BODY_FAT_METHODS, BodyFatMethod, bodyFatCategory, frameSize, Skinfolds } from "../nutrition/calc";
 import { PrismaService } from "../prisma/prisma.service";
 
 // Medida numérica opcional dentro de un rango razonable.
@@ -34,6 +34,7 @@ export class ConsultationDto {
   @text(1000) reason?: string;
 
   @m(1, 400) weightKg?: number | null;
+  @m(1, 400) usualWeightKg?: number | null;
   @m(30, 250) heightCm?: number | null;
   @m(20, 250) waistCm?: number | null;
   @m(20, 250) hipCm?: number | null;
@@ -43,7 +44,8 @@ export class ConsultationDto {
   @m(1, 75) bodyFatPct?: number | null;
   @m(1, 150) muscleMassKg?: number | null;
   @m(1, 60) visceralFat?: number | null;
-  @IsOptional() @IsObject() extraMeasures?: Record<string, number>;
+  // { skinfolds: { triceps: 18, ... }, wristCm: 15.5, bodyFatMethod: "DURNIN_WOMERSLEY" }
+  @IsOptional() @IsObject() extraMeasures?: Prisma.InputJsonObject;
   @IsOptional() @IsInt() @Min(50) @Max(260) systolicBp?: number | null;
   @IsOptional() @IsInt() @Min(30) @Max(160) diastolicBp?: number | null;
 
@@ -110,7 +112,7 @@ export class ConsultationsService {
     previousWeight: number | null,
     initialWeight: number | null,
   ) {
-    return anthropometry({
+    const indicators = anthropometry({
       sex: patient.sex,
       ageYears: ageFrom(patient.birthDate, c.date),
       weightKg: num(c.weightKg),
@@ -120,7 +122,29 @@ export class ConsultationsService {
       bodyFatPct: num(c.bodyFatPct),
       previousWeightKg: previousWeight,
       initialWeightKg: initialWeight,
+      usualWeightKg: num(c.usualWeightKg),
     });
+
+    // Medidas adicionales: % de grasa por pliegues, complexión y brazo.
+    const extra = (c.extraMeasures ?? {}) as { skinfolds?: Skinfolds; wristCm?: number; bodyFatMethod?: BodyFatMethod };
+    const bodyFatPct = num(c.bodyFatPct);
+    if (bodyFatPct !== null) {
+      const cat = bodyFatCategory(patient.sex, bodyFatPct);
+      const method = BODY_FAT_METHODS.find((m) => m.value === extra.bodyFatMethod)?.label;
+      indicators.push({ key: "bodyFat", label: "Grasa corporal", value: bodyFatPct, unit: "%", status: method ? `${cat.label} · ${method}` : cat.label, alert: cat.alert });
+    }
+    const height = num(c.heightCm);
+    if (height && extra.wristCm) {
+      const frame = frameSize(patient.sex, height, extra.wristCm);
+      indicators.push({ key: "frame", label: "Complexión (talla/muñeca)", value: frame.ratio, unit: "", status: frame.label });
+    }
+    const arm = num(c.armCm);
+    if (arm && extra.skinfolds?.triceps) {
+      const a = armIndices(patient.sex, arm, extra.skinfolds.triceps);
+      indicators.push({ key: "armMuscle", label: "Circunferencia muscular del brazo", value: a.muscleCircumferenceCm, unit: "cm" });
+      indicators.push({ key: "armMuscleArea", label: "Área muscular del brazo", value: a.muscleAreaCm2, unit: "cm²" });
+    }
+    return indicators;
   }
 
   async create(nutritionistId: string, patientId: string, dto: ConsultationDto) {

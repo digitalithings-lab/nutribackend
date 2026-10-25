@@ -400,6 +400,8 @@ model Consultation {
 
   // Antropometría
   weightKg       Decimal?         @map("weight_kg") @db.Decimal(5, 2)
+  // Peso habitual referido por el paciente, para valorar pérdidas o ganancias.
+  usualWeightKg  Decimal?         @map("usual_weight_kg") @db.Decimal(5, 2)
   heightCm       Decimal?         @map("height_cm") @db.Decimal(5, 1)
   waistCm        Decimal?         @map("waist_cm") @db.Decimal(5, 1)
   hipCm          Decimal?         @map("hip_cm") @db.Decimal(5, 1)
@@ -567,6 +569,16 @@ model MealPlan {
   bodyFatPct     Decimal?       @map("body_fat_pct") @db.Decimal(4, 1)
   kcalPerKg      Decimal?       @map("kcal_per_kg") @db.Decimal(4, 1)
   activityFactor Decimal?       @map("activity_factor") @db.Decimal(4, 3)
+  // Peso con que se calculan las calorías: AUTO (según IMC), ACTUAL, IDEAL o ADJUSTED, y el valor usado.
+  weightBasis       String?     @map("weight_basis")
+  energyWeightKg    Decimal?    @map("energy_weight_kg") @db.Decimal(5, 2)
+  // Condición clínica, etapa fisiológica y ejercicio (calculado por MET, aparte del factor de actividad).
+  stressFactor      Decimal?    @map("stress_factor") @db.Decimal(4, 2)
+  physiologicalStage String?    @map("physiological_stage")
+  physiologicalKcal Int?        @map("physiological_kcal")
+  exerciseKcal      Int?        @map("exercise_kcal")
+  // { occupation, sedentaryHours, exercises: [{ type, met, daysPerWeek, minutes }] }
+  activityDetail    Json?       @map("activity_detail")
   // Gasto energético en reposo y total calculados.
   restingKcal    Int?           @map("resting_kcal")
   totalKcal      Int?           @map("total_kcal")

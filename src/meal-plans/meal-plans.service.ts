@@ -10,18 +10,23 @@ import {
   distributeExchanges,
   energy,
   EnergyInputError,
+  energyWeight,
+  exerciseKcalPerDay,
   GroupValue,
   Macros,
   macroGrams,
+  PHYSIOLOGICAL_EXTRAS,
   round,
   suggestExchanges,
   totalsFromServings,
+  WeightBasis,
 } from "../nutrition/calc";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   ApproveDto,
   CreateMealPlanDto,
   EnergyDto,
+  ActivityDetailDto,
   ExchangesDto,
   ItemDto,
   MacrosDto,
@@ -126,11 +131,12 @@ export class MealPlansService {
       targetKcal: 2000,
     };
     if (weightKg && heightCm) {
+      const ew = energyWeight(weightKg, heightCm, "AUTO");
       const result = energy({
         equation,
         sex: patient.sex,
         ageYears,
-        weightKg,
+        weightKg: ew.weightKg,
         heightCm,
         bodyFatPct,
         activityFactor: DEFAULT_ACTIVITY_FACTOR,
@@ -139,6 +145,8 @@ export class MealPlansService {
         calorieMethod: CalorieMethod.AUTOMATIC,
         equation,
         activityFactor: DEFAULT_ACTIVITY_FACTOR,
+        weightBasis: "AUTO",
+        energyWeightKg: ew.weightKg,
         ...result,
       };
     }
@@ -208,27 +216,49 @@ export class MealPlansService {
         targetKcal: dto.targetKcal,
       };
     } else {
+      const weightKg = dto.weightKg ?? num(plan.weightKg);
+      // Etapa fisiológica y ejercicio se convierten en kcal; el ejercicio se suma aparte del factor de actividad.
+      const stage = dto.physiologicalStage ?? plan.physiologicalStage ?? "NONE";
+      const physiological = PHYSIOLOGICAL_EXTRAS.find((p) => p.value === stage);
+      if (!physiological) throw new BadRequestException("La etapa fisiológica no es válida");
+      const activityDetail =
+        dto.activityDetail === undefined ? ((plan.activityDetail as ActivityDetailDto | null) ?? null) : dto.activityDetail;
+      const exerciseKcal = activityDetail && weightKg ? exerciseKcalPerDay(weightKg, activityDetail.exercises) : 0;
       const input = {
         equation: dto.equation ?? plan.equation ?? EnergyEquation.MIFFLIN_ST_JEOR,
         sex: dto.sex ?? plan.sex ?? plan.patient.sex,
         ageYears: dto.ageYears ?? plan.ageYears ?? ageFrom(plan.patient.birthDate),
-        weightKg: dto.weightKg ?? num(plan.weightKg),
+        weightKg,
         heightCm: dto.heightCm ?? num(plan.heightCm),
         bodyFatPct: dto.bodyFatPct ?? num(plan.bodyFatPct),
         kcalPerKg: dto.kcalPerKg ?? num(plan.kcalPerKg),
         activityFactor: dto.activityFactor ?? num(plan.activityFactor) ?? DEFAULT_ACTIVITY_FACTOR,
+        stressFactor: dto.stressFactor ?? num(plan.stressFactor) ?? 1,
+        exerciseKcal,
+        physiologicalKcal: physiological.kcal,
         adjustmentPct: dto.adjustmentPct === undefined ? plan.adjustmentPct : dto.adjustmentPct,
         adjustmentKcal: dto.adjustmentKcal === undefined ? plan.adjustmentKcal : dto.adjustmentKcal,
       };
       if (!input.weightKg) throw new BadRequestException("Indica el peso para el cálculo automático");
+      // Las ecuaciones usan el peso ideal o el ajustado según el IMC (o el que elija la nutricionista).
+      const weightBasis = (dto.weightBasis ?? plan.weightBasis ?? "AUTO") as WeightBasis;
+      const ew = energyWeight(input.weightKg, input.heightCm, weightBasis);
       let result;
       try {
-        result = energy({ ...input, weightKg: input.weightKg });
+        result = energy({ ...input, weightKg: ew.weightKg });
       } catch (err) {
         if (err instanceof EnergyInputError) throw new BadRequestException(err.message);
         throw err;
       }
-      data = { calorieMethod: CalorieMethod.AUTOMATIC, ...input, ...result };
+      data = {
+        calorieMethod: CalorieMethod.AUTOMATIC,
+        ...input,
+        weightBasis,
+        energyWeightKg: ew.weightKg,
+        physiologicalStage: stage,
+        activityDetail: activityDetail ? (JSON.parse(JSON.stringify(activityDetail)) as Prisma.InputJsonObject) : Prisma.DbNull,
+        ...result,
+      };
     }
 
     await this.prisma.mealPlan.update({ where: { id }, data });
@@ -423,6 +453,7 @@ export class MealPlansService {
       const created = await tx.mealPlan.create({
         data: {
           ...rest,
+          activityDetail: rest.activityDetail === null ? Prisma.DbNull : (rest.activityDetail as Prisma.InputJsonValue),
           consultationId: consultationId ?? rest.consultationId,
           title: `${plan.title} (ajuste)`,
           status: MealPlanStatus.DRAFT,
@@ -587,7 +618,12 @@ export class MealPlansService {
       },
       allowedFoodSources: foodSourcesFor(plan.exchangeMode),
       target,
-      proteinPerKg: plan.weightKg ? round(target.proG / num(plan.weightKg)!) : null,
+      // Proteína por kg del mismo peso con que se calcularon las calorías.
+      proteinPerKg: (plan.energyWeightKg ?? plan.weightKg) ? round(target.proG / num(plan.energyWeightKg ?? plan.weightKg)!) : null,
+      energyWeight:
+        plan.weightKg && plan.calorieMethod === CalorieMethod.AUTOMATIC
+          ? energyWeight(num(plan.weightKg)!, num(plan.heightCm), (plan.weightBasis ?? "AUTO") as WeightBasis)
+          : null,
       daily,
       exchangeTotals,
       menuTotals: roundedMenu,

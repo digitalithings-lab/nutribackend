@@ -14,6 +14,11 @@ export const COLORS = {
 
 const MARGIN = 48;
 
+// La fuente estándar del PDF (WinAnsi) no trae algunos signos matemáticos; se reemplazan por equivalentes.
+export function pdfText(value: unknown): string {
+  return String(value).replace(/−/g, "-").replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/⅓/g, "1/3");
+}
+
 export interface Header {
   title: string;
   subtitle?: string;
@@ -81,14 +86,14 @@ export class Pdf {
       .fillColor(options.muted ? COLORS.muted : COLORS.ink)
       .font("Helvetica")
       .fontSize(options.size ?? 10)
-      .text(text, MARGIN, undefined, { width: this.width });
+      .text(pdfText(text), MARGIN, undefined, { width: this.width });
     this.doc.moveDown(0.3);
   }
 
   bullets(items: string[]) {
     for (const item of items) {
       this.ensureSpace(16);
-      this.doc.fillColor(COLORS.ink).font("Helvetica").fontSize(10).text(`•  ${item}`, MARGIN + 6, undefined, { width: this.width - 6 });
+      this.doc.fillColor(COLORS.ink).font("Helvetica").fontSize(10).text(`•  ${pdfText(item)}`, MARGIN + 6, undefined, { width: this.width - 6 });
     }
     this.doc.moveDown(0.3);
   }
@@ -104,7 +109,7 @@ export class Pdf {
       visible.slice(i, i + columns).forEach(([label, value], j) => {
         const x = MARGIN + j * colWidth;
         this.doc.fillColor(COLORS.muted).font("Helvetica").fontSize(8).text(label.toUpperCase(), x, y, { width: colWidth - 8 });
-        this.doc.fillColor(COLORS.ink).font("Helvetica-Bold").fontSize(10).text(String(value), x, undefined, { width: colWidth - 8 });
+        this.doc.fillColor(COLORS.ink).font("Helvetica-Bold").fontSize(10).text(pdfText(value), x, undefined, { width: colWidth - 8 });
         maxY = Math.max(maxY, this.doc.y);
       });
       this.doc.y = maxY + 6;
@@ -118,7 +123,7 @@ export class Pdf {
     const cols = w.map((f) => f * this.width);
     const drawRow = (cells: (string | number)[], header: boolean) => {
       const heights = cells.map((c, i) =>
-        this.doc.font(header ? "Helvetica-Bold" : "Helvetica").fontSize(9).heightOfString(String(c), { width: cols[i] - 8 }),
+        this.doc.font(header ? "Helvetica-Bold" : "Helvetica").fontSize(9).heightOfString(pdfText(c), { width: cols[i] - 8 }),
       );
       const h = Math.max(...heights) + 8;
       this.ensureSpace(h + 4);
@@ -131,7 +136,7 @@ export class Pdf {
           .fillColor(header ? COLORS.brand : COLORS.ink)
           .font(bold ? "Helvetica-Bold" : "Helvetica")
           .fontSize(9)
-          .text(String(c), x + 4, y + 4, { width: cols[i] - 8 });
+          .text(pdfText(c), x + 4, y + 4, { width: cols[i] - 8 });
         x += cols[i];
       });
       this.doc.moveTo(MARGIN, y + h).lineTo(MARGIN + this.width, y + h).lineWidth(0.5).strokeColor(COLORS.line).stroke();
