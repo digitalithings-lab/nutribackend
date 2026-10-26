@@ -10,12 +10,19 @@ import {
   ItemDto,
   MacrosDto,
   MealsDto,
+  ShoppingExtrasDto,
   UpdateItemDto,
   UpdateMealPlanDto,
 } from "./meal-plans.dto";
 import { MealPlansService } from "./meal-plans.service";
 
 const Id = () => Param("id", ParseUUIDPipe);
+
+// Días que cubre la lista de supermercado (1 a 31; por defecto una semana).
+export function shoppingDays(value?: string): number {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= 31 ? n : 7;
+}
 
 @Controller()
 @Roles("NUTRITIONIST")
@@ -120,6 +127,16 @@ export class MealPlansController {
   @HttpCode(200)
   reopen(@CurrentUser() user: AuthUser, @Id() id: string) {
     return this.plans.reopen(user.id, id);
+  }
+
+  @Get("meal-plans/:id/shopping-list")
+  shoppingList(@CurrentUser() user: AuthUser, @Id() id: string, @Query("days") days?: string) {
+    return this.plans.shoppingList(user.id, id, shoppingDays(days));
+  }
+
+  @Put("meal-plans/:id/shopping-extras")
+  shoppingExtras(@CurrentUser() user: AuthUser, @Id() id: string, @Body() dto: ShoppingExtrasDto) {
+    return this.plans.setShoppingExtras(user.id, id, dto.extras);
   }
 
   @Post("meal-plans/:id/duplicate")

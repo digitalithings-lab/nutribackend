@@ -11,6 +11,7 @@ import { JwtAuthGuard } from "./common/jwt-auth.guard";
 import { RolesGuard } from "./common/roles";
 import { config } from "./config";
 import { ConsultationsModule } from "./consultations/consultations.module";
+import { FilesModule } from "./files/files.controller";
 import { HealthController } from "./health/health.controller";
 import { HomeModule } from "./home/home.controller";
 import { MealPlansModule } from "./meal-plans/meal-plans.module";
@@ -39,6 +40,7 @@ import { ReportsModule } from "./reports/reports.module";
     HomeModule,
     AdminModule,
     PatientAppModule,
+    FilesModule,
   ],
   controllers: [HealthController],
   providers: [

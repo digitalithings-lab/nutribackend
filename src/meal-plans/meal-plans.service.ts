@@ -22,6 +22,7 @@ import {
   WeightBasis,
 } from "../nutrition/calc";
 import { PrismaService } from "../prisma/prisma.service";
+import { buildShoppingList, ShoppingExtra } from "./shopping";
 import {
   ApproveDto,
   CreateMealPlanDto,
@@ -458,6 +459,7 @@ export class MealPlansService {
         data: {
           ...rest,
           activityDetail: rest.activityDetail === null ? Prisma.DbNull : (rest.activityDetail as Prisma.InputJsonValue),
+          shoppingExtras: rest.shoppingExtras === null ? Prisma.DbNull : (rest.shoppingExtras as Prisma.InputJsonValue),
           consultationId: consultationId ?? rest.consultationId,
           title: `${plan.title} (ajuste)`,
           status: MealPlanStatus.DRAFT,
@@ -497,6 +499,22 @@ export class MealPlansService {
       return created;
     });
     return this.detail(nutritionistId, copy.id);
+  }
+
+  // ─── Lista de supermercado ───
+
+  async shoppingList(nutritionistId: string, id: string, days: number) {
+    return buildShoppingList(await this.load(nutritionistId, id), days);
+  }
+
+  // Artículos extra (agua, especias, artículos de limpieza…). Se pueden editar aun con el plan aprobado.
+  async setShoppingExtras(nutritionistId: string, id: string, extras: ShoppingExtra[]) {
+    await this.load(nutritionistId, id);
+    const clean = extras
+      .map((e) => ({ name: e.name.trim(), quantity: e.quantity?.trim() || undefined, note: e.note?.trim() || undefined }))
+      .filter((e) => e.name);
+    await this.prisma.mealPlan.update({ where: { id }, data: { shoppingExtras: clean as unknown as Prisma.InputJsonValue } });
+    return this.shoppingList(nutritionistId, id, 7);
   }
 
   async remove(nutritionistId: string, id: string) {

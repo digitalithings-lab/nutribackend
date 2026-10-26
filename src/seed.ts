@@ -377,6 +377,44 @@ async function fillLinkCodes() {
   }
 }
 
+// Índice glucémico de referencia (Tablas Internacionales de IG, Atkinson y col. 2008/2021).
+// Vegetales sin almidón: valor bajo de referencia. Carnes, quesos y grasas puras no aplican (sin carbohidratos).
+const GLYCEMIC_INDEX: Record<string, number> = {
+  // Panamá
+  "Arroz blanco cocido": 73, "Arroz integral cocido": 68, "Yuca cocida": 46, "Ñame cocido": 54, "Otoe cocido": 53,
+  "Papa cocida": 78, "Camote cocido": 63, "Plátano verde cocido": 40, "Plátano maduro cocido": 66, "Guineo verde cocido": 40,
+  "Tortilla de maíz asada": 46, "Bollo de maíz": 50, "Maíz en grano cocido": 52, "Mazorca de maíz": 52,
+  "Pan de molde blanco": 75, "Pan de molde integral": 74, "Pan de flauta": 75, "Galletas de soda": 74,
+  "Avena en hojuelas": 55, "Avena cocida": 55, "Pasta cocida (macarrones, espaguetis)": 49, "Hojuelas de maíz (corn flakes)": 81,
+  "Crema de maíz (Maicena) cocida": 70,
+  "Frijoles rojos cocidos": 24, "Frijoles negros cocidos": 30, "Porotos cocidos": 30, "Lentejas cocidas": 32,
+  "Guandú cocido": 22, "Garbanzos cocidos": 28, "Arvejas secas cocidas": 25,
+  "Lechuga": 15, "Repollo": 15, "Espinaca": 15, "Tomate": 15, "Pepino": 15, "Zanahoria": 39, "Habichuelas": 15,
+  "Zapallo": 64, "Chayote": 15, "Brócoli": 15, "Coliflor": 15, "Berenjena": 15, "Pimentón (ají dulce)": 15,
+  "Cebolla": 15, "Remolacha": 64, "Apio": 15, "Ocra (molondrón)": 15, "Hongos": 15,
+  "Guineo": 51, "Papaya": 60, "Piña": 59, "Mango": 51, "Sandía": 76, "Melón": 65, "Naranja": 43, "Mandarina": 47,
+  "Manzana": 36, "Pera": 38, "Uvas": 59, "Fresas": 40, "Guayaba": 31, "Maracuyá (pulpa)": 30, "Jugo de naranja natural": 50,
+  "Leche descremada": 32, "Leche en polvo descremada": 30, "Yogur natural descremado": 35, "Leche semidescremada (2 %)": 30,
+  "Yogur natural semidescremado": 35, "Leche entera": 39, "Leche en polvo entera": 27, "Leche evaporada": 34,
+  "Yogur natural entero": 36, "Maní": 14,
+  "Azúcar": 65, "Miel de abeja": 61, "Raspadura (panela)": 65, "Mermelada": 51, "Refresco o soda regular": 63,
+  // Listas tradicionales
+  "Arroz cocido": 73, "Pan blanco": 75, "Pan integral": 74, "Tortilla de maíz": 46, "Tortilla de harina": 30,
+  "Pasta cocida": 49, "Cereal de caja sin azúcar": 74, "Maíz cocido": 52, "Galletas saladas": 74,
+  "Palomitas de maíz naturales": 65, "Frijoles cocidos": 30,
+  "Vegetales cocidos (mezcla)": 15, "Vegetales crudos (mezcla)": 15, "Ensalada verde": 15, "Jugo de tomate": 38,
+  "Plátano (banano)": 51, "Pasas": 64, "Jugo de fruta natural": 50, "Yogur descremado sin azúcar": 35, "Miel": 61,
+};
+
+// Completa el índice glucémico de los alimentos del catálogo que aún no lo tienen (no pisa ediciones).
+async function fillGlycemicIndex() {
+  const foods = await prisma.food.findMany({ where: { nutritionistId: null, glycemicIndex: null }, select: { id: true, name: true } });
+  for (const food of foods) {
+    const gi = GLYCEMIC_INDEX[food.name];
+    if (gi !== undefined) await prisma.food.update({ where: { id: food.id }, data: { glycemicIndex: gi } });
+  }
+}
+
 async function main() {
   await fillLinkCodes();
   for (const plan of PLANS) {
@@ -400,6 +438,7 @@ async function main() {
 
   const createdTraditional = await seedFoods("TRAD", FoodSource.TRADITIONAL, TRADITIONAL_FOODS, traditional);
   const createdPanama = await seedFoods("PA", FoodSource.PANAMA, PANAMA_FOODS, panama);
+  await fillGlycemicIndex();
   console.log(`Catálogos listos (${createdTraditional + createdPanama} alimentos nuevos)`);
 }
 

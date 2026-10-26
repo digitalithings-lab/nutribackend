@@ -1,4 +1,4 @@
-import { Controller, Get, Injectable, Param, ParseUUIDPipe, Res, StreamableFile } from "@nestjs/common";
+import { Controller, Get, Injectable, Param, ParseUUIDPipe, Query, Res, StreamableFile } from "@nestjs/common";
 import { User } from "@prisma/client";
 import type { Response } from "express";
 import { ownedPatient } from "../common/access";
@@ -6,13 +6,16 @@ import { AuthUser, CurrentUser } from "../common/auth.decorators";
 import { num } from "../common/dates";
 import { Roles } from "../common/roles";
 import { ConsultationsService } from "../consultations/consultations.controller";
+import { shoppingDays } from "../meal-plans/meal-plans.controller";
 import { MealPlansService } from "../meal-plans/meal-plans.service";
+import { buildShoppingList, quantityText } from "../meal-plans/shopping";
 import { ageFrom, EQUATIONS } from "../nutrition/calc";
 import { PatientsService } from "../patients/patients.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { Pdf } from "./pdf";
 
 const SEX = { FEMALE: "Femenino", MALE: "Masculino" } as const;
+const GI_LABEL = { LOW: "bajo", MEDIUM: "medio", HIGH: "alto" } as const;
 const MODE = { TRADITIONAL: "Listas tradicionales", PANAMA: "Base de alimentos de Panamá", COMBINED: "Combinado" } as const;
 
 // Las fechas sin hora se guardan a mediodía UTC; los momentos (aprobación, hoy) se muestran
@@ -371,6 +374,42 @@ export class ReportsService {
     return { buffer: await pdf.finish(), filename: `progreso-${slug(name)}.pdf` };
   }
 
+  // Lista de supermercado del plan para N días.
+  async shopping(nutritionistId: string, planId: string, days: number) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: nutritionistId } });
+    const plan = await this.plans.load(nutritionistId, planId);
+    const list = buildShoppingList(plan, days);
+    const name = `${plan.patient.firstName} ${plan.patient.lastName}`;
+    const pdf = new Pdf({
+      ...headerFor(user),
+      title: "Lista de supermercado",
+      subtitle: `${name} · ${plan.title} · para ${days} día${days === 1 ? "" : "s"}`,
+    });
+    for (const section of list.sections) {
+      pdf.section(section.name);
+      pdf.table(
+        ["", "Alimento", "Cantidad", "IG"],
+        section.items.map((i) => [
+          "[  ]",
+          i.brand ? `${i.name} (${i.brand})` : i.name,
+          quantityText(i),
+          i.glycemicIndex !== null ? `${i.glycemicIndex} ${GI_LABEL[i.glycemicLevel!]}` : "—",
+        ]),
+        [0.07, 0.43, 0.35, 0.15],
+      );
+    }
+    if (list.extras.length) {
+      pdf.section("Otros artículos");
+      pdf.table(
+        ["", "Artículo", "Cantidad", "Nota"],
+        list.extras.map((e) => ["[  ]", e.name, e.quantity ?? "", e.note ?? ""]),
+        [0.07, 0.43, 0.2, 0.3],
+      );
+    }
+    pdf.paragraph("Cantidades aproximadas según tu menú. IG: índice glucémico (bajo ≤ 55, medio 56-69, alto ≥ 70).", { muted: true, size: 8.5 });
+    return { buffer: await pdf.finish(), filename: `lista-supermercado-${slug(name)}.pdf` };
+  }
+
   // Requerimientos y cálculos del plan (informe técnico para la nutricionista u otro profesional).
   async planCalculations(nutritionistId: string, planId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: nutritionistId } });
@@ -484,6 +523,16 @@ export class ReportsController {
     @Res({ passthrough: true }) res: Response,
   ) {
     return send(res, await this.reports.planCalculations(user.id, id));
+  }
+
+  @Get("meal-plans/:id/shopping.pdf")
+  async shopping(
+    @CurrentUser() user: AuthUser,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Query("days") days: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return send(res, await this.reports.shopping(user.id, id, shoppingDays(days)));
   }
 
   @Get("consultations/:id/evaluation.pdf")

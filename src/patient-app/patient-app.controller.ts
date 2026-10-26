@@ -3,6 +3,7 @@ import { Throttle } from "@nestjs/throttler";
 import { AuthUser, CurrentUser } from "../common/auth.decorators";
 import { Roles } from "../common/roles";
 import { AppointmentRequestDto, FoodLogDto, FoodScanDto, LinkDto, WeightDto } from "./patient-app.dto";
+import { shoppingDays } from "../meal-plans/meal-plans.controller";
 import { PatientAppService } from "./patient-app.service";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -53,6 +54,11 @@ export class PatientAppController {
   @Get("plan")
   plan(@CurrentUser() user: AuthUser) {
     return this.app.plan(user.id);
+  }
+
+  @Get("shopping-list")
+  shoppingList(@CurrentUser() user: AuthUser, @Query("days") days?: string) {
+    return this.app.shoppingList(user.id, shoppingDays(days));
   }
 
   @Get("exchange-list")

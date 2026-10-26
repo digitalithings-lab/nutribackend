@@ -16,7 +16,7 @@ const MARGIN = 48;
 
 // La fuente estándar del PDF (WinAnsi) no trae algunos signos matemáticos; se reemplazan por equivalentes.
 export function pdfText(value: unknown): string {
-  return String(value).replace(/−/g, "-").replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/⅓/g, "1/3");
+  return String(value).replace(/−/g, "-").replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/⅓/g, "1/3").replace(/≈/g, "~");
 }
 
 export interface Header {

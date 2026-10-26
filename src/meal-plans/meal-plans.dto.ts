@@ -123,3 +123,17 @@ export class ApproveDto {
   // La nutricionista confirma que aprueba aunque haya diferencias con el objetivo.
   @IsOptional() @IsBoolean() acknowledgeWarnings?: boolean;
 }
+
+export class ShoppingExtraDto {
+  @IsString() @Length(1, 80) name: string;
+  @IsOptional() @IsString() @MaxLength(40) quantity?: string;
+  @IsOptional() @IsString() @MaxLength(120) note?: string;
+}
+
+export class ShoppingExtrasDto {
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ShoppingExtraDto)
+  extras: ShoppingExtraDto[];
+}

@@ -103,6 +103,11 @@ enum FoodLogSource {
   MANUAL
 }
 
+enum FileKind {
+  FOOD_IMAGE
+  PATIENT_FILE
+}
+
 enum TicketStatus {
   OPEN
   ANSWERED
@@ -257,6 +262,7 @@ model Patient {
   user          User?             @relation("PatientAccount", fields: [userId], references: [id], onDelete: SetNull)
   foodLogs      FoodLog[]
   foodScans     FoodScan[]
+  files         StoredFile[]
   weightLogs    WeightLog[]
   background    PatientBackground?
   dietHistory   DietHistory?
@@ -330,7 +336,8 @@ model LabResult {
   notes     String?
   createdAt DateTime @default(now()) @map("created_at")
 
-  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patient Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  files   StoredFile[]
 
   @@index([patientId, takenOn])
   @@map("lab_results")
@@ -500,6 +507,11 @@ model Food {
   proG            Decimal    @map("pro_g") @db.Decimal(5, 1)
   fatG            Decimal    @map("fat_g") @db.Decimal(5, 1)
   fiberG          Decimal?   @map("fiber_g") @db.Decimal(5, 1)
+  // Índice glucémico (glucosa = 100). null = no aplica o sin dato.
+  glycemicIndex   Int?       @map("glycemic_index")
+  // Marca, para productos de supermercado.
+  brand           String?
+  imageId         String?    @unique @map("image_id") @db.Uuid
   notes           String?
   active          Boolean    @default(true)
   createdAt       DateTime   @default(now()) @map("created_at")
@@ -507,6 +519,7 @@ model Food {
 
   nutritionist User?          @relation(fields: [nutritionistId], references: [id], onDelete: Cascade)
   group        ExchangeGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  image        StoredFile?    @relation("FoodImage", fields: [imageId], references: [id], onDelete: SetNull)
   recipeItems  RecipeIngredient[]
   planItems    MealPlanItem[]
 
@@ -597,6 +610,8 @@ model MealPlan {
   systemId       String         @map("system_id") @db.Uuid
 
   objectives      String[]      @default([])
+  // Artículos agregados a mano a la lista de supermercado: [{ name, quantity, note }]
+  shoppingExtras  Json?         @map("shopping_extras")
   recommendations String?
   notes           String?
   approvedAt      DateTime?     @map("approved_at")
@@ -723,4 +738,26 @@ model WeightLog {
 
   @@unique([patientId, date])
   @@map("weight_logs")
+}
+
+// Archivos guardados en la base: fotos de productos y adjuntos del expediente (exámenes, estudios).
+model StoredFile {
+  id          String   @id @default(uuid()) @db.Uuid
+  kind        FileKind
+  // Quién lo subió (nutricionista o administración).
+  ownerId     String?  @map("owner_id") @db.Uuid
+  patientId   String?  @map("patient_id") @db.Uuid
+  labResultId String?  @map("lab_result_id") @db.Uuid
+  name        String
+  mimeType    String   @map("mime_type")
+  size        Int
+  data        Bytes
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  patient   Patient?   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  labResult LabResult? @relation(fields: [labResultId], references: [id], onDelete: SetNull)
+  food      Food?      @relation("FoodImage")
+
+  @@index([patientId, createdAt])
+  @@map("stored_files")
 }

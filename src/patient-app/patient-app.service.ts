@@ -6,7 +6,8 @@ import { normalizeCode, randomCode } from "../common/codes";
 import { dateFromString, num } from "../common/dates";
 import { config } from "../config";
 import { MealPlansService } from "../meal-plans/meal-plans.service";
-import { macroGrams, round } from "../nutrition/calc";
+import { buildShoppingList } from "../meal-plans/shopping";
+import { glycemicLevel, macroGrams, round } from "../nutrition/calc";
 import { PatientsService } from "../patients/patients.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { FoodVision } from "./food-vision";
@@ -203,6 +204,14 @@ export class PatientAppService {
     return visible;
   }
 
+  // Lista de supermercado del plan aprobado.
+  async shoppingList(userId: string, days: number) {
+    const patient = await this.current(userId);
+    const plan = patient.nutritionistId ? await this.approvedPlan(patient.id) : null;
+    if (!plan || !patient.nutritionistId) return null;
+    return buildShoppingList(await this.plans.load(patient.nutritionistId, plan.id), days);
+  }
+
   // Lista de intercambios: alimentos de cada grupo del plan con su porción equivalente.
   async exchangeList(userId: string) {
     const patient = await this.current(userId);
@@ -230,7 +239,15 @@ export class PatientAppService {
         servingsPerDay: detail.daily[g.key],
         foods: foods
           .filter((f) => f.group?.key === g.key)
-          .map((f) => ({ id: f.id, name: f.name, portion: f.portionText, kcal: num(f.kcal) })),
+          .map((f) => ({
+            id: f.id,
+            name: f.name,
+            portion: f.portionText,
+            kcal: num(f.kcal),
+            glycemicIndex: f.glycemicIndex,
+            glycemicLevel: f.glycemicIndex !== null ? glycemicLevel(f.glycemicIndex) : null,
+            imageId: f.imageId,
+          })),
       }));
   }
 

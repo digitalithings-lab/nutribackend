@@ -710,3 +710,18 @@ export function armIndices(sex: Sex, armCm: number, tricepsMm: number) {
 export function weightLossPct(currentKg: number, usualKg: number): number {
   return round(((usualKg - currentKg) / usualKg) * 100);
 }
+
+// ─── Índice y carga glucémica ────────────────
+
+export type GlycemicLevel = "LOW" | "MEDIUM" | "HIGH";
+
+// Clasificación del índice glucémico: bajo ≤ 55, medio 56–69, alto ≥ 70.
+export function glycemicLevel(gi: number): GlycemicLevel {
+  return gi <= 55 ? "LOW" : gi < 70 ? "MEDIUM" : "HIGH";
+}
+
+// Carga glucémica de una porción = IG × carbohidratos (g) ÷ 100. Baja ≤ 10, media 11–19, alta ≥ 20.
+export function glycemicLoad(gi: number, choG: number): { value: number; level: GlycemicLevel } {
+  const value = round((gi * choG) / 100);
+  return { value, level: value <= 10 ? "LOW" : value < 20 ? "MEDIUM" : "HIGH" };
+}

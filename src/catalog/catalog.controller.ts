@@ -50,6 +50,8 @@ export class FoodDto {
   @grams(300) proG: number;
   @grams(300) fatG: number;
   @IsOptional() @grams(100) fiberG?: number | null;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(110) glycemicIndex?: number | null;
+  @IsOptional() @EmptyToUndefined() @IsString() @MaxLength(60) brand?: string | null;
   @IsOptional() @EmptyToUndefined() @IsString() @MaxLength(500) notes?: string;
 }
 
